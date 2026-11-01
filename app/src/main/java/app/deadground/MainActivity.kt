@@ -44,9 +44,19 @@ import kotlinx.coroutines.withContext
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        AlertJob.schedule(this)
+        // Alerts are never worth a crash on launch: if scheduling fails, record it and open anyway.
+        runCatching { AlertJob.schedule(this) }.onFailure { recordFault(this, it) }
         val start = intent.getStringExtra("tab") ?: "BRIEF" // notification actions open a tab
-        setContent { App(start) }
+        setContent {
+            var fault by remember { mutableStateOf(readFault(this)) }
+            val trace = fault
+            if (trace != null) {
+                FaultScreen(trace) {
+                    clearFault(this)
+                    fault = null
+                }
+            } else App(start)
+        }
     }
 }
 
