@@ -7,9 +7,11 @@ import android.location.LocationManager
 import android.os.CancellationSignal
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeoutOrNull
+import org.json.JSONArray
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
+import java.net.URLEncoder
 import kotlin.coroutines.resume
 import kotlin.math.roundToLong
 
@@ -49,27 +51,100 @@ fun fetchAndStore(ctx: Context, lat: Double, lon: Double): String {
     return json
 }
 
+// ---- Saved areas of operation ----
+
+data class Place(val name: String, val lat: Double, val lon: Double)
+
+fun loadAos(ctx: Context): List<Place> {
+    val a = JSONArray(prefs(ctx).getString("aos", "[]"))
+    return (0 until a.length()).map { a.getJSONObject(it) }
+        .map { Place(it.getString("name"), it.getDouble("lat"), it.getDouble("lon")) }
+}
+
+fun saveAos(ctx: Context, aos: List<Place>) {
+    val a = JSONArray(aos.map { JSONObject().put("name", it.name).put("lat", it.lat).put("lon", it.lon) })
+    prefs(ctx).edit().putString("aos", a.toString()).apply()
+}
+
+private fun get(url: String): String {
+    val conn = URL(url).openConnection() as HttpURLConnection
+    conn.connectTimeout = 10_000
+    conn.readTimeout = 15_000
+    try {
+        check(conn.responseCode == 200) { "HTTP ${conn.responseCode}" }
+        return conn.inputStream.bufferedReader().use { it.readText() }
+    } finally {
+        conn.disconnect()
+    }
+}
+
 object OpenMeteo {
+    private const val FIELDS = "&current=temperature_2m,apparent_temperature,weather_code,precipitation" +
+        "&hourly=temperature_2m,precipitation,snowfall,weather_code,wind_gusts_10m" +
+        "&timezone=auto&wind_speed_unit=ms&past_days=1"
+
     // No key, no account, no headers identifying the app or the phone.
-    fun fetch(lat: Double, lon: Double): String {
-        val url = "https://api.open-meteo.com/v1/forecast?latitude=$lat&longitude=$lon" +
-            "&current=temperature_2m,apparent_temperature,weather_code,precipitation" +
-            "&hourly=temperature_2m,precipitation,snowfall,weather_code,wind_gusts_10m" +
-            "&minutely_15=precipitation&forecast_minutely_15=96" +
-            "&past_days=1&forecast_days=7&timezone=auto&wind_speed_unit=ms"
-        val conn = URL(url).openConnection() as HttpURLConnection
-        conn.connectTimeout = 10_000
-        conn.readTimeout = 15_000
-        try {
-            check(conn.responseCode == 200) { "HTTP ${conn.responseCode}" }
-            return conn.inputStream.bufferedReader().use { it.readText() }
-        } finally {
-            conn.disconnect()
+    fun fetch(lat: Double, lon: Double): String = get(
+        "https://api.open-meteo.com/v1/forecast?latitude=$lat&longitude=$lon$FIELDS" +
+            "&minutely_15=precipitation&forecast_minutely_15=96&forecast_days=7",
+    )
+
+    /** All saved AOs in ONE request (Open-Meteo returns an array for several coordinates). */
+    fun fetchMany(points: List<Place>): List<Forecast> {
+        if (points.isEmpty()) return emptyList()
+        val text = get(
+            "https://api.open-meteo.com/v1/forecast?latitude=${points.joinToString(",") { "${it.lat}" }}" +
+                "&longitude=${points.joinToString(",") { "${it.lon}" }}$FIELDS&forecast_days=2",
+        )
+        return if (text.trimStart().startsWith("[")) {
+            val a = JSONArray(text)
+            (0 until a.length()).map { parse(a.getJSONObject(it)) }
+        } else listOf(parse(JSONObject(text)))
+    }
+
+    /**
+     * Model scope: 15-min precip + snow for the AO and 24 points around it, one request.
+     * The ring is derived from the AO, so it reveals nothing the normal forecast call doesn't.
+     */
+    fun fetchScope(lat: Double, lon: Double): Scope {
+        val pts = scopePoints(lat, lon)
+        val text = get(
+            "https://api.open-meteo.com/v1/forecast?latitude=${pts.joinToString(",") { "${it.third.first}" }}" +
+                "&longitude=${pts.joinToString(",") { "${it.third.second}" }}" +
+                "&minutely_15=precipitation,snowfall&forecast_minutely_15=24&timezone=auto",
+        )
+        val arr = JSONArray(text)
+        val now = java.time.LocalDateTime.now().let { it.withMinute(it.minute / 15 * 15) }.toString().take(16)
+        val times = arr.getJSONObject(0).getJSONObject("minutely_15").getJSONArray("time")
+        val keep = (0 until times.length()).filter { times.getString(it) >= now }.take(16)
+        check(keep.size >= 2) { "no scope frames" }
+        val cells = pts.indices.map { i ->
+            val m = arr.getJSONObject(i).getJSONObject("minutely_15")
+            val p = m.getJSONArray("precipitation")
+            val sn = m.getJSONArray("snowfall")
+            Cell(pts[i].first, pts[i].second, keep.map { p.optDouble(it, 0.0) }, keep.map { sn.optDouble(it, 0.0) })
+        }
+        return Scope(keep.map { times.getString(it) }, cells)
+    }
+
+    /** Place search sends only the typed text, never your position. */
+    fun search(query: String): List<Place> {
+        val o = JSONObject(
+            get("https://geocoding-api.open-meteo.com/v1/search?name=${URLEncoder.encode(query, "UTF-8")}&count=6&language=en&format=json"),
+        )
+        val r = o.optJSONArray("results") ?: return emptyList()
+        return (0 until r.length()).map { r.getJSONObject(it) }.map {
+            val region = listOf(it.optString("admin1"), it.optString("country_code")).filter { s -> s.isNotEmpty() }
+            Place(
+                (listOf(it.getString("name")) + region).joinToString(", ").uppercase(),
+                round2(it.getDouble("latitude")), round2(it.getDouble("longitude")),
+            )
         }
     }
 
-    fun parse(json: String): Forecast {
-        val o = JSONObject(json)
+    fun parse(json: String): Forecast = parse(JSONObject(json))
+
+    fun parse(o: JSONObject): Forecast {
         val cur = o.getJSONObject("current")
         val h = o.getJSONObject("hourly")
         val time = h.getJSONArray("time")

@@ -4,7 +4,9 @@ Private weather brief for one person. No account, no trackers, no Play Services 
 
 ## Privacy
 - Location: coarse permission only, rounded to 2 decimals (~1 km) before it leaves the phone.
-- Weather: Open-Meteo (no key, no account). That is the only network destination.
+- Weather and place search: Open-Meteo (no key, no account). That is the only network destination.
+- Radar is a MODEL SCOPE: Open-Meteo 15-min forecasts for 24 points around the AO, not live radar.
+- Place search sends only the typed text. Saved AOs live on the device; the AO tab fetches them in one request.
 - Note: on phones with Google services, Android's *network* location provider is itself
   answered by Google. A GPS-only mode is planned for later.
 
@@ -26,13 +28,15 @@ and you have to uninstall once.
 - `Brief.kt` — pure logic: WXCON, GO/NO-GO window, threats, T+24H strip, loadout (tested)
 - `Data.kt` — location (rounded) + Open-Meteo fetch/parse
 - `Ui.kt` — flap tiles, topo background + rain/snow layer, brief screen, nav
+- `Scope.kt` — model scope logic: ring of 25 points, contact, ETA, motion (tested)
+- `Screens.kt` — Radar scope, 7 Day ops calendar, AO roster with search
 - `Widget.kt` — home screen widget, drawn as one bitmap, refreshes for the last AO
 - `MainActivity.kt` — permission, cache, refresh
 
 ## Milestones
 1. Data + Brief ✓
-2. **Widget** (W3 terrain, resizable 4×2 / 2×2) ← this build
-3. Radar (countdown + scope), 7 Day (ops calendar), AO (roster)
+2. Widget (W3 terrain, resizable 4×2 / 2×2) ✓
+3. **Radar (model scope), 7 Day (ops calendar), AO (roster + place search)** ← this build
 4. Alerts (signal format, quiet hours, daily cap) + MeteoAlarm warnings
 
 Fonts: Oswald, Share Tech Mono (SIL OFL, see `licenses/`).

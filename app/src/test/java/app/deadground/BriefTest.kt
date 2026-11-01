@@ -89,4 +89,36 @@ class BriefTest {
         check(b.reason == "TRACE RAIN ~22:00") { b.reason }
         check(b.window == "DRY 24H") { b.window }
     }
+
+    @Test
+    fun weekFromMixedDay() {
+        val w = week(mixedDay())
+        check(w.size == 2) { "days ${w.size}" }
+        check(w[0].label == "SUN") { w[0].label }
+        check(w[0].wxcon == 2 && w[0].type == Precip.ICE) { "${w[0]}" }
+        check(w[0].hi == 7 && w[0].lo == 0) { "${w[0]}" }
+        check(w[1].snowCm == 6.0) { "${w[1]}" }
+        check(w[1].loadout.contains("GRIP BOOTS")) { w[1].loadout }
+    }
+
+    // Rain cell walks in from the north-west: 30 km → 20 → 10 → overhead after 2 h.
+    @Test
+    fun scopeTracksApproachingRain() {
+        val times = (0 until 16).map { i -> val m = 14 * 60 + 15 + i * 15; "2026-11-01T%02d:%02d".format(m / 60, m % 60) }
+        fun cell(b: Int, km: Int, wet: IntRange?) =
+            Cell(b, km, (0 until 16).map { if (wet != null && it in wet) 0.5 else 0.0 }, List(16) { 0.0 })
+        val ring = RANGES.flatMap { km ->
+            BEARINGS.map { b ->
+                cell(b, km, if (b == 315) mapOf(30 to 0..3, 20 to 2..6, 10 to 4..8)[km] else null)
+            }
+        }
+        val s = Scope(times, listOf(cell(0, 0, 8..15)) + ring)
+        val r0 = readout(s, 0)
+        check(r0.contact == "NW" && r0.range == "30 KM") { "$r0" }
+        check(r0.countdown == "02:00" && r0.eta == "~16:15") { "$r0" }
+        check(r0.headline == "RAIN · LIGHT · FROM NW · MOVING SE") { r0.headline }
+        check(readout(s, 8).headline == "RAIN OVERHEAD · LIGHT") { readout(s, 8).headline }
+        check(scopePoints(56.95, 24.11).size == 25)
+        check(compass(350.0) == "N" && compass(200.0) == "S")
+    }
 }

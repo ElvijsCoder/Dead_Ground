@@ -26,6 +26,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -59,18 +60,28 @@ fun App() {
         mutableStateOf(ctx.checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED)
     }
     var tab by remember { mutableStateOf("BRIEF") }
+    var aos by remember { mutableStateOf(loadAos(ctx)) }
+    var active by remember { mutableIntStateOf(store.getInt("active", -1).takeIf { it < aos.size } ?: -1) }
+    var roster by remember { mutableStateOf<List<Brief?>>(emptyList()) }
+    var radar by remember { mutableStateOf<Scope?>(null) }
+    var radarNote by remember { mutableStateOf<String?>(null) }
+    var radarAt by remember { mutableLongStateOf(0L) }
     val scope = rememberCoroutineScope()
-    val brief = remember(json) { json?.let { runCatching { derive(OpenMeteo.parse(it)) }.getOrNull() } }
+    val forecast = remember(json) { json?.let { runCatching { OpenMeteo.parse(it) }.getOrNull() } }
+    val brief = remember(forecast) { forecast?.let { runCatching { derive(it) }.getOrNull() } }
+    val days = remember(forecast) { forecast?.let { runCatching { week(it) }.getOrNull() }.orEmpty() }
+    var hereBrief by remember { mutableStateOf(if (active == -1) brief else null) }
 
     fun refresh() {
         scope.launch {
             status = "ACQUIRING…"
             runCatching {
-                val (lat, lon) = locate(ctx) ?: error("no fix")
+                val (lat, lon) = aos.getOrNull(active)?.let { it.lat to it.lon } ?: locate(ctx) ?: error("no fix")
                 withContext(Dispatchers.IO) { fetchAndStore(ctx, lat, lon).also { DeadGroundWidget.renderAll(ctx) } }
             }.onSuccess {
                 json = it
                 fetchedAt = store.getLong("at", 0L)
+                if (active == -1) hereBrief = runCatching { derive(OpenMeteo.parse(it)) }.getOrNull()
                 status = null
             }.onFailure { status = "SIGNAL LOST · TAP TO RETRY" }
         }
@@ -81,8 +92,41 @@ fun App() {
         if (granted) refresh()
     }
     LaunchedEffect(Unit) {
-        if (!hasPerm) permission.launch(Manifest.permission.ACCESS_COARSE_LOCATION)
+        if (!hasPerm && active == -1) permission.launch(Manifest.permission.ACCESS_COARSE_LOCATION)
         else if (System.currentTimeMillis() - fetchedAt > STALE_MS) refresh()
+    }
+    // Roster temps for every saved AO, in one request, only while the AO tab is open.
+    LaunchedEffect(tab, aos) {
+        if (tab == "AO" && aos.isNotEmpty()) {
+            roster = withContext(Dispatchers.IO) {
+                runCatching { OpenMeteo.fetchMany(aos).map { f -> runCatching { derive(f) }.getOrNull() } }
+                    .getOrElse { aos.map { null } }
+            }
+        }
+    }
+    // Model scope around the active AO, only while the RADAR tab is open; reused for 15 min.
+    LaunchedEffect(tab, active) {
+        if (tab != "RADAR") return@LaunchedEffect
+        val centre = aos.getOrNull(active)?.let { it.lat to it.lon }
+            ?: store.getString("lat", null)?.toDoubleOrNull()?.let { lat ->
+                store.getString("lon", null)?.toDoubleOrNull()?.let { lat to it }
+            }
+        if (centre == null) {
+            radarNote = "NO AO FIX YET · OPEN BRIEF FIRST"
+            return@LaunchedEffect
+        }
+        if (radar != null && System.currentTimeMillis() - radarAt < 15 * 60_000L) return@LaunchedEffect
+        radarNote = "SCANNING…"
+        radar = withContext(Dispatchers.IO) { runCatching { OpenMeteo.fetchScope(centre.first, centre.second) }.getOrNull() }
+        radarAt = System.currentTimeMillis()
+        radarNote = if (radar == null) "SCOPE OFFLINE · REOPEN TAB TO RETRY" else null
+    }
+    fun select(i: Int) {
+        active = i
+        store.edit().putInt("active", i).apply()
+        tab = "BRIEF"
+        radar = null // new AO, new scope
+        if (i == -1 && !hasPerm) permission.launch(Manifest.permission.ACCESS_COARSE_LOCATION) else refresh()
     }
 
     Box(Modifier.fillMaxSize().background(Black)) {
@@ -93,24 +137,45 @@ fun App() {
         ) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 T("DEAD GROUND", size = 18, spacing = 0.32f)
-                T(brief?.stamp ?: "----L", Modifier.clickable { if (hasPerm) refresh() }, color = Dim)
+                T(brief?.stamp ?: "----L", Modifier.clickable { if (hasPerm || active >= 0) refresh() }, color = Dim)
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                val aoName = aos.getOrNull(active)?.name?.substringBefore(",")
+                    ?: if (hasPerm) "CURRENT POS" else "LOCATION OFF"
                 Box(
-                    Modifier.heightIn(min = 44.dp).border(1.dp, White).padding(horizontal = 14.dp),
+                    Modifier.heightIn(min = 44.dp).border(1.dp, White).clickable { tab = "AO" }.padding(horizontal = 14.dp),
                     contentAlignment = Alignment.Center,
-                ) { T(if (hasPerm) "AO ▸ CURRENT POS" else "AO ▸ LOCATION OFF", spacing = 0.12f) }
+                ) { T("AO ▸ $aoName", spacing = 0.12f) }
                 T("GRID ±1 KM", color = Dim)
             }
             status?.let {
-                T(it, Modifier.clickable { if (hasPerm) refresh() }, color = if (it.startsWith("SIGNAL")) Red else Dim)
+                T(it, Modifier.clickable { if (hasPerm || active >= 0) refresh() }, color = if (it.startsWith("SIGNAL")) Red else Dim)
             }
 
             Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
                 when {
-                    tab != "BRIEF" -> T("$tab · NEXT BUILD", color = Dim)
+                    tab == "7 DAY" -> WeekBody(days)
+                    tab == "AO" -> AoBody(
+                        aos, active, hereBrief, roster,
+                        onSelect = ::select,
+                        onAdd = { p ->
+                            aos = aos + p
+                            saveAos(ctx, aos)
+                        },
+                        onRemove = { i ->
+                            aos = aos.filterIndexed { j, _ -> j != i }
+                            saveAos(ctx, aos)
+                            roster = roster.filterIndexed { j, _ -> j != i }
+                            if (active == i) select(-1) else if (active > i) {
+                                active -= 1
+                                store.edit().putInt("active", active).apply()
+                            }
+                        },
+                        search = { q -> withContext(Dispatchers.IO) { OpenMeteo.search(q) } },
+                    )
+                    tab == "RADAR" -> RadarBody(radar, radarNote)
                     brief != null -> BriefBody(brief)
-                    !hasPerm -> T("GRANT LOCATION TO RECEIVE A BRIEF", Modifier.clickable {
+                    !hasPerm && active == -1 -> T("GRANT LOCATION TO RECEIVE A BRIEF", Modifier.clickable {
                         permission.launch(Manifest.permission.ACCESS_COARSE_LOCATION)
                     }, color = Dim)
                     else -> T("AWAITING FIRST BRIEF", color = Dim)
