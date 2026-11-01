@@ -26,11 +26,12 @@ and you have to uninstall once.
 - `Brief.kt` — pure logic: WXCON, GO/NO-GO window, threats, T+24H strip, loadout (tested)
 - `Data.kt` — location (rounded) + Open-Meteo fetch/parse
 - `Ui.kt` — flap tiles, topo background + rain/snow layer, brief screen, nav
+- `Widget.kt` — home screen widget, drawn as one bitmap, refreshes for the last AO
 - `MainActivity.kt` — permission, cache, refresh
 
 ## Milestones
-1. **Data + Brief** ← this build
-2. Widget (W3 terrain, 4×2 + 2×2)
+1. Data + Brief ✓
+2. **Widget** (W3 terrain, resizable 4×2 / 2×2) ← this build
 3. Radar (countdown + scope), 7 Day (ops calendar), AO (roster)
 4. Alerts (signal format, quiet hours, daily cap) + MeteoAlarm warnings
 

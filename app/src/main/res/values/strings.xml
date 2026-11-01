@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="widget_description">Terrain brief: temperature, dry window, threats and the next 24 hours.</string>
+</resources>

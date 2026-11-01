@@ -1,7 +1,6 @@
 package app.deadground
 
 import android.Manifest
-import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -52,9 +51,9 @@ private const val STALE_MS = 30 * 60_000L
 @Composable
 fun App() {
     val ctx = LocalContext.current
-    val prefs = remember { ctx.getSharedPreferences("dg", Context.MODE_PRIVATE) }
-    var json by remember { mutableStateOf(prefs.getString("json", null)) }
-    var fetchedAt by remember { mutableLongStateOf(prefs.getLong("at", 0L)) }
+    val store = remember { prefs(ctx) }
+    var json by remember { mutableStateOf(store.getString("json", null)) }
+    var fetchedAt by remember { mutableLongStateOf(store.getLong("at", 0L)) }
     var status by remember { mutableStateOf<String?>(null) }
     var hasPerm by remember {
         mutableStateOf(ctx.checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED)
@@ -68,11 +67,10 @@ fun App() {
             status = "ACQUIRING…"
             runCatching {
                 val (lat, lon) = locate(ctx) ?: error("no fix")
-                withContext(Dispatchers.IO) { OpenMeteo.fetch(lat, lon).also { OpenMeteo.parse(it) } }
+                withContext(Dispatchers.IO) { fetchAndStore(ctx, lat, lon).also { DeadGroundWidget.renderAll(ctx) } }
             }.onSuccess {
                 json = it
-                fetchedAt = System.currentTimeMillis()
-                prefs.edit().putString("json", it).putLong("at", fetchedAt).apply()
+                fetchedAt = store.getLong("at", 0L)
                 status = null
             }.onFailure { status = "SIGNAL LOST · TAP TO RETRY" }
         }

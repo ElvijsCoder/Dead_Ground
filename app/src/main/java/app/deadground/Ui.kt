@@ -85,7 +85,7 @@ fun tempText(t: Int) = (if (t < 0) "−" else "") + "%02d°".format(kotlin.math.
 
 // ---- Background: static topo contours + slow precip layer only while it's actually falling ----
 
-private class Ring(val cx: Float, val cy: Float, val k: Int, val ph: Double, val alpha: Float)
+internal class Ring(val cx: Float, val cy: Float, val k: Int, val ph: Double, val alpha: Float, val step: Double = 22.0)
 private class Particle(val x: Float, val y: Float, val len: Float, val alpha: Float)
 
 private fun topoRings(): List<Ring> {
@@ -96,8 +96,8 @@ private fun topoRings(): List<Ring> {
 }
 
 /** Contour shape at drift phase d (radians). d = 0 is the static mockup. */
-private fun ringPoints(ring: Ring, d: Double): List<Offset> {
-    val r0 = 22.0 * ring.k
+internal fun ringPoints(ring: Ring, d: Double): List<Offset> {
+    val r0 = ring.step * ring.k
     // ponytail: whole-terrain drift + slow "breathing"; one cycle ≈ 2 min, imperceptible frame to frame
     val dx = sin(d) * 14
     val dy = sin(d * 2) * 8

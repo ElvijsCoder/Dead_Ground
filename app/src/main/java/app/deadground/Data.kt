@@ -34,6 +34,21 @@ suspend fun locate(ctx: Context): Pair<Double, Double>? {
     return fix?.let { round2(it.latitude) to round2(it.longitude) }
 }
 
+fun prefs(ctx: Context) = ctx.getSharedPreferences("dg", Context.MODE_PRIVATE)
+
+/** Fetch, validate, cache. Shared by the app and the widget so both always read the same data. */
+fun fetchAndStore(ctx: Context, lat: Double, lon: Double): String {
+    val json = OpenMeteo.fetch(lat, lon)
+    OpenMeteo.parse(json) // a bad payload throws here and never replaces a good cache
+    prefs(ctx).edit()
+        .putString("json", json)
+        .putLong("at", System.currentTimeMillis())
+        .putString("lat", lat.toString())
+        .putString("lon", lon.toString())
+        .apply()
+    return json
+}
+
 object OpenMeteo {
     // No key, no account, no headers identifying the app or the phone.
     fun fetch(lat: Double, lon: Double): String {
