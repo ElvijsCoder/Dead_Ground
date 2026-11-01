@@ -39,7 +39,7 @@ private val FREEZING = setOf(56, 57, 66, 67)
 
 private fun hh(t: String) = t.substring(11, 13)
 private fun hhmm(t: String) = t.substring(11, 16)
-private fun hourAfter(t: String) = "%02d00".format((hh(t).toInt() + 1) % 24)
+private fun hourBefore(t: String) = "%02d".format((hh(t).toInt() + 23) % 24)
 
 fun level(mm: Double) = when {
     mm < WET -> 0
@@ -85,7 +85,9 @@ private fun amount(x: Double) = if (x < 1) "%.1f".format(Locale.US, x) else x.ro
 fun derive(f: Forecast): Brief {
     val c = f.current
     val nowHour = c.time.substring(0, 13) + ":00"
-    val idx = f.hours.indexOfFirst { it.time >= nowHour }.coerceAtLeast(0)
+    // Hourly precip is the total for the hour BEFORE its timestamp, so "20:00" is already past at 20:47.
+    // The first hour that still matters is the one stamped after now.
+    val idx = f.hours.indexOfFirst { it.time > c.time }.let { if (it < 0) f.hours.size else it }
     val past6 = f.hours.subList(maxOf(0, idx - 6), idx)
     val next24 = f.hours.drop(idx).take(24)
     val types = next24.map(::precipType)
@@ -98,7 +100,7 @@ fun derive(f: Forecast): Brief {
             )
     }
     val iceSpan = iceHours.takeIf { it.isNotEmpty() }
-        ?.let { "${hh(next24[it.first()].time)}00–${hourAfter(next24[it.last()].time)}" }
+        ?.let { "${hourBefore(next24[it.first()].time)}00–${hh(next24[it.last()].time)}00" }
     val maxGust = next24.maxOfOrNull { it.gust } ?: 0.0
 
     val threat: String?
@@ -118,7 +120,7 @@ fun derive(f: Forecast): Brief {
     val window = when {
         iceNow -> {
             val run = iceHours.withIndex().takeWhile { it.index == it.value }.last().value
-            "ICE UNTIL ~${hourAfter(next24[run].time)}"
+            "ICE UNTIL ~${hh(next24[run].time)}00"
         }
         wetNow -> slots.firstOrNull { it.precip < WET }?.let { "NEXT WINDOW ~${hhmm(it.time)}" } ?: "NO WINDOW 24H"
         else -> firstWetSlot?.let { "WINDOW CLOSES ${hhmm(it.time)}" } ?: "DRY 24H"
@@ -127,7 +129,9 @@ fun derive(f: Forecast): Brief {
     val firstWet = types.indexOfFirst { it != Precip.NONE }
     val reason = when {
         wetNow -> "${name(types.firstOrNull { it != Precip.NONE } ?: Precip.RAIN)} NOW"
-        firstWet >= 0 -> "${name(types[firstWet])} INBOUND ~${firstWetSlot?.let { hhmm(it.time) } ?: hhmm(next24[firstWet].time)}"
+        firstWetSlot != null -> "${name(types.getOrNull(firstWet) ?: Precip.RAIN)} INBOUND ~${hhmm(firstWetSlot.time)}"
+        // Hourly sees a little, 15-min never crosses the threshold: say so instead of claiming it's inbound.
+        firstWet >= 0 -> "TRACE ${name(types[firstWet])} ~${hourBefore(next24[firstWet].time)}:00"
         else -> "NO PRECIP 24H"
     }
 
@@ -145,7 +149,7 @@ fun derive(f: Forecast): Brief {
     val strip = next24.indices.chunked(3).map { ix ->
         val t = ix.map { if (it in iceHours) Precip.ICE else types[it] }.maxBy { it.ordinal }
         val lv = ix.maxOf { levels[it] }
-        StripCol(hh(next24[ix.first()].time), t, if (t == Precip.ICE) maxOf(1, lv) else lv)
+        StripCol(hourBefore(next24[ix.first()].time), t, if (t == Precip.ICE) maxOf(1, lv) else lv)
     }
     val seen = strip.map { it.type }.filter { it != Precip.NONE }.distinct()
     val stripLabel = "T+24H " + when (seen.toSet()) {

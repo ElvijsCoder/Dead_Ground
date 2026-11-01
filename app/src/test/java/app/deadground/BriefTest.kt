@@ -55,4 +55,38 @@ class BriefTest {
         check(!b.go && b.window == "NEXT WINDOW ~21:00") { b.window }
         check(b.nowPrecip == Precip.RAIN)
     }
+
+    // Your 20:47 case: rain fell 19–20, nothing ahead. Must not claim "inbound ~20:00".
+    @Test
+    fun pastHourRainIsIgnored() {
+        val hours = (0..47).map { i ->
+            val t = "2026-11-%02dT%02d:00".format(1 + i / 24, i % 24)
+            Hour(t, 6.0, if (t == "2026-11-01T20:00") 0.2 else 0.0, 0.0, 3, 5.0)
+        }
+        val slots = (0 until 96).map { i ->
+            val m = 20 * 60 + 45 + i * 15
+            Slot("2026-11-%02dT%02d:%02d".format(1 + m / 1440, (m / 60) % 24, m % 60), 0.0)
+        }
+        val b = derive(Forecast(Current("2026-11-01T20:45", 6.0, 3.0, 3, 0.0), hours, slots))
+        check(b.reason == "NO PRECIP 24H") { b.reason }
+        check(b.window == "DRY 24H") { b.window }
+        check(b.strip.all { it.level == 0 }) { "${b.strip}" }
+        check(b.go)
+    }
+
+    // Light rain ahead in hourly data that never reaches the 15-min threshold: "TRACE", not "INBOUND".
+    @Test
+    fun traceRainIsLabelled() {
+        val hours = (0..47).map { i ->
+            val t = "2026-11-%02dT%02d:00".format(1 + i / 24, i % 24)
+            Hour(t, 6.0, if (t == "2026-11-01T23:00") 0.2 else 0.0, 0.0, 3, 5.0)
+        }
+        val slots = (0 until 96).map { i ->
+            val m = 20 * 60 + 45 + i * 15
+            Slot("2026-11-%02dT%02d:%02d".format(1 + m / 1440, (m / 60) % 24, m % 60), 0.0)
+        }
+        val b = derive(Forecast(Current("2026-11-01T20:45", 6.0, 3.0, 3, 0.0), hours, slots))
+        check(b.reason == "TRACE RAIN ~22:00") { b.reason }
+        check(b.window == "DRY 24H") { b.window }
+    }
 }

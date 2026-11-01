@@ -85,23 +85,27 @@ fun tempText(t: Int) = (if (t < 0) "−" else "") + "%02d°".format(kotlin.math.
 
 // ---- Background: static topo contours + slow precip layer only while it's actually falling ----
 
-private class Ring(val points: List<Offset>, val alpha: Float)
+private class Ring(val cx: Float, val cy: Float, val k: Int, val ph: Double, val alpha: Float)
 private class Particle(val x: Float, val y: Float, val len: Float, val alpha: Float)
 
 private fun topoRings(): List<Ring> {
     val rnd = java.util.Random(7)
-    val rings = mutableListOf<Ring>()
-    for ((cx, cy, n) in listOf(Triple(300f, 230f, 9), Triple(60f, 640f, 8))) for (k in 1..n) {
-        val r0 = 22f * k
-        val ph = rnd.nextDouble() * 6
-        val pts = (0 until 360 step 6).map { a ->
-            val t = Math.toRadians(a.toDouble())
-            val r = r0 * (1 + 0.18 * sin(3 * t + ph + k * 0.3) + 0.08 * sin(5 * t + ph * 1.7))
-            Offset((cx + r * cos(t) * 1.25).toFloat(), (cy + r * sin(t)).toFloat())
-        }
-        rings += Ring(pts, if (k % 4 == 0) 0.16f else 0.08f)
+    return listOf(Triple(300f, 230f, 9), Triple(60f, 640f, 8)).flatMap { (cx, cy, n) ->
+        (1..n).map { k -> Ring(cx, cy, k, rnd.nextDouble() * 6, if (k % 4 == 0) 0.16f else 0.08f) }
     }
-    return rings
+}
+
+/** Contour shape at drift phase d (radians). d = 0 is the static mockup. */
+private fun ringPoints(ring: Ring, d: Double): List<Offset> {
+    val r0 = 22.0 * ring.k
+    // ponytail: whole-terrain drift + slow "breathing"; one cycle ≈ 2 min, imperceptible frame to frame
+    val dx = sin(d) * 14
+    val dy = sin(d * 2) * 8
+    return (0 until 360 step 6).map { a ->
+        val t = Math.toRadians(a.toDouble())
+        val r = r0 * (1 + 0.18 * sin(3 * t + ring.ph + ring.k * 0.3 + d) + 0.08 * sin(5 * t + ring.ph * 1.7 - d))
+        Offset((ring.cx + dx + r * cos(t) * 1.25).toFloat(), (ring.cy + dy + r * sin(t)).toFloat())
+    }
 }
 
 @Composable
@@ -111,6 +115,9 @@ fun TerrainBackground(precip: Precip) {
         val rnd = java.util.Random(3)
         List(100) { Particle(rnd.nextFloat(), rnd.nextFloat(), 14f + rnd.nextFloat() * 20f, listOf(0.06f, 0.1f, 0.14f)[rnd.nextInt(3)]) }
     }
+    val drift = rememberInfiniteTransition(label = "terrain").animateFloat(
+        0f, (2 * Math.PI).toFloat(), infiniteRepeatable(tween(120_000, easing = LinearEasing)), label = "drift",
+    )
     val snow = precip == Precip.SNOW
     val phase: State<Float>? = if (precip == Precip.NONE) null else {
         rememberInfiniteTransition(label = "precip").animateFloat(
@@ -121,9 +128,10 @@ fun TerrainBackground(precip: Precip) {
         val sx = size.width / 390f
         val sy = size.height / 844f
         val stroke = Stroke(1.dp.toPx())
+        val d = drift.value.toDouble()
         rings.forEach { ring ->
             val path = Path()
-            ring.points.forEachIndexed { i, p ->
+            ringPoints(ring, d).forEachIndexed { i, p ->
                 if (i == 0) path.moveTo(p.x * sx, p.y * sy) else path.lineTo(p.x * sx, p.y * sy)
             }
             path.close()
