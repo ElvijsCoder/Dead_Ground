@@ -11,6 +11,7 @@ import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.platform.LocalContext
+import kotlinx.coroutines.delay
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -83,7 +84,7 @@ fun T(
 @Composable
 fun FlapTiles(text: String, w: Dp, h: Dp, size: TextUnit) {
     Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-        text.forEachIndexed { i, ch -> key(i) { FlapTile(ch, w, h, size) } }
+        text.forEachIndexed { i, ch -> key(i) { FlapTile(ch, w, h, size, delayMs = i * 70L) } }
     }
 }
 
@@ -93,12 +94,13 @@ fun FlapTiles(text: String, w: Dp, h: Dp, size: TextUnit) {
  * When the character changes: the old top half falls to the split, then the new bottom half falls into place.
  */
 @Composable
-private fun FlapTile(ch: Char, w: Dp, h: Dp, size: TextUnit) {
+private fun FlapTile(ch: Char, w: Dp, h: Dp, size: TextUnit, delayMs: Long) {
     var current by remember { mutableStateOf(ch) }
     var previous by remember { mutableStateOf(ch) }
     val flip = remember { Animatable(1f) }
     LaunchedEffect(ch) {
         if (ch != current) {
+            delay(delayMs) // left-to-right cascade
             previous = current
             current = ch
             flip.snapTo(0f)
@@ -167,6 +169,8 @@ private fun topoRings(): List<Ring> {
     }
 }
 
+private const val MAX_RING = 9
+
 /** Contour shape at drift phase d (radians). d = 0 is the static mockup. */
 internal fun ringPoints(ring: Ring, d: Double): List<Offset> {
     val r0 = ring.step * ring.k
@@ -181,7 +185,7 @@ internal fun ringPoints(ring: Ring, d: Double): List<Offset> {
 }
 
 @Composable
-fun TerrainBackground(precip: Precip) {
+fun TerrainBackground(precip: Precip, reveal: Float = 1f) {
     val rings = remember { topoRings() }
     val particles = remember {
         val rnd = java.util.Random(3)
@@ -207,8 +211,11 @@ fun TerrainBackground(precip: Precip) {
                 if (i == 0) path.moveTo(p.x * sx, p.y * sy) else path.lineTo(p.x * sx, p.y * sy)
             }
             path.close()
-            drawPath(path, White.copy(alpha = ring.alpha), style = stroke)
+            // Intro: contours sweep outward from each peak, inner rings first.
+            val shown = (reveal * (MAX_RING + 2) - ring.k).coerceIn(0f, 1f)
+            if (shown > 0f) drawPath(path, White.copy(alpha = ring.alpha * shown), style = stroke)
         }
+        if (reveal < 1f) return@Canvas // no rain/snow layer until the terrain is in
         val t = phase?.value ?: return@Canvas
         particles.forEach { p ->
             val y = ((p.y + t) % 1f) * size.height
@@ -225,10 +232,12 @@ fun TerrainBackground(precip: Precip) {
 // ---- Brief screen ----
 
 @Composable
-fun BriefBody(b: Brief) {
+fun BriefBody(b: Brief, revealed: Boolean = true) {
     Column(verticalArrangement = Arrangement.spacedBy(18.dp)) {
         Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            FlapTiles(tempText(b.temp), 72.dp, 106.dp, 78.sp)
+            val temp = tempText(b.temp)
+            // Blank tiles until the splash hands over, then they flip to the reading.
+            FlapTiles(if (revealed) temp else " ".repeat(temp.length), 72.dp, 106.dp, 78.sp)
             T("${b.condition} · FEELS ${b.feels}°", size = 18, spacing = 0.18f)
             b.vsYesterday?.let { T((if (it > 0) "+" else if (it < 0) "−" else "±") + "${kotlin.math.abs(it)}° VS YESTERDAY", color = Dim) }
         }

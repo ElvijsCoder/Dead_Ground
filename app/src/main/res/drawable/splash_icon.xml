@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Splash: the sight line draws itself. Ridge 0–450 ms, line of sight 300–650 ms,
+  dead ground (red hatch) fades in 500–800 ms, observer dot blinks on at 650 ms.
+  288dp with content inside the central 192dp circle, as Android's splash spec wants.
+-->
+<animated-vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt">
+    <aapt:attr name="android:drawable">
+        <vector android:width="288dp" android:height="288dp" android:viewportWidth="108" android:viewportHeight="108">
+            <path android:name="hatch" android:strokeColor="#FF3B30" android:strokeWidth="1.1" android:strokeAlpha="0"
+                android:pathData="M63.83,63.83L69.84,69.84M62.36,59.72L71.60,68.96M60.60,55.32L73.36,68.08M55.70,47.78L57.96,50.04M57.96,50.04L75.12,67.20M57.41,46.85L76.44,65.88M59.11,45.91L77.76,64.56M60.81,44.97L79.08,63.24M62.52,44.04L80.40,61.92M64.22,43.10L80.40,59.28M65.92,42.16L80.40,56.64M67.63,41.23L80.40,54.00M69.33,40.29L80.40,51.36M71.03,39.35L80.40,48.72M72.74,38.42L80.40,46.08M74.44,37.48L80.40,43.44M76.14,36.54L80.40,40.80M77.85,35.61L80.40,38.16M79.55,34.67L80.40,35.52" />
+            <path android:name="ridge" android:strokeColor="#FFFFFF" android:strokeWidth="2.2" android:strokeLineCap="round"
+                android:strokeLineJoin="round" android:trimPathEnd="0" android:pathData="M27.60,67.20L34.20,67.20C42.12,67.20 47.40,48.72 54.00,48.72C60.60,48.72 61.92,69.84 69.84,69.84C75.12,69.84 77.76,64.56 80.40,61.92" />
+            <path android:name="sight" android:strokeColor="#FFFFFF" android:strokeWidth="1.4" android:strokeLineCap="round"
+                android:trimPathEnd="0" android:pathData="M29.58,62.58L31.60,61.45M33.33,60.49L35.34,59.36M37.07,58.40L39.09,57.27M40.82,56.31L42.83,55.18M44.56,54.21L46.58,53.09M48.31,52.12L50.32,51.00M52.05,50.03L54.07,48.90M55.80,47.94L57.82,46.81M59.54,45.85L61.56,44.72M63.29,43.76L65.31,42.63M67.04,41.66L69.05,40.54M70.78,39.57L72.80,38.45M74.53,37.48L76.54,36.35M78.27,35.39L80.29,34.26" />
+            <path android:name="dot" android:fillColor="#39FF6A" android:fillAlpha="0" android:pathData="M26.66,62.58a2.92,2.92 0 1,0 5.83,0a2.92,2.92 0 1,0 -5.83,0" />
+        </vector>
+    </aapt:attr>
+    <target android:name="ridge">
+        <aapt:attr name="android:animation">
+            <objectAnimator android:propertyName="trimPathEnd" android:valueFrom="0" android:valueTo="1"
+                android:duration="450" android:interpolator="@android:interpolator/fast_out_slow_in" />
+        </aapt:attr>
+    </target>
+    <target android:name="sight">
+        <aapt:attr name="android:animation">
+            <objectAnimator android:propertyName="trimPathEnd" android:valueFrom="0" android:valueTo="1"
+                android:startOffset="300" android:duration="350" android:interpolator="@android:interpolator/linear" />
+        </aapt:attr>
+    </target>
+    <target android:name="hatch">
+        <aapt:attr name="android:animation">
+            <objectAnimator android:propertyName="strokeAlpha" android:valueFrom="0" android:valueTo="1"
+                android:startOffset="500" android:duration="300" />
+        </aapt:attr>
+    </target>
+    <target android:name="dot">
+        <aapt:attr name="android:animation">
+            <set android:ordering="sequentially">
+                <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0" android:valueTo="1"
+                    android:startOffset="650" android:duration="60" />
+                <objectAnimator android:propertyName="fillAlpha" android:valueFrom="1" android:valueTo="0.2" android:duration="70" />
+                <objectAnimator android:propertyName="fillAlpha" android:valueFrom="0.2" android:valueTo="1" android:duration="70" />
+            </set>
+        </aapt:attr>
+    </target>
+</animated-vector>

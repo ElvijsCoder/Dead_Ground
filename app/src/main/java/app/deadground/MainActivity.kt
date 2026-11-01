@@ -4,6 +4,9 @@ import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -42,8 +45,23 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 class MainActivity : ComponentActivity() {
+    /** Flips true when the splash hands over: terrain sweeps in, tiles flip to values. */
+    private val revealed = mutableStateOf(false)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (savedInstanceState != null) revealed.value = true // rotation etc.: no splash, no intro
+        // Let the sight line finish drawing, fade the splash, then start the reveal.
+        splashScreen.setOnExitAnimationListener { v ->
+            val end = v.iconAnimationStart?.plus(v.iconAnimationDuration ?: java.time.Duration.ZERO)
+            val left = end?.let { java.time.Duration.between(java.time.Instant.now(), it).toMillis() }?.coerceAtLeast(0) ?: 0L
+            v.animate().alpha(0f).setStartDelay(left).setDuration(180).withEndAction {
+                v.remove()
+                revealed.value = true
+            }.start()
+        }
+        // Safety net: some launches show no splash (or skip the listener); never leave the brief blank.
+        window.decorView.postDelayed({ revealed.value = true }, 1_500)
         // Alerts are never worth a crash on launch: if scheduling fails, record it and open anyway.
         runCatching { AlertJob.schedule(this) }.onFailure { recordFault(this, it) }
         val start = intent.getStringExtra("tab") ?: "BRIEF" // notification actions open a tab
@@ -55,7 +73,7 @@ class MainActivity : ComponentActivity() {
                     clearFault(this)
                     fault = null
                 }
-            } else App(start)
+            } else App(start, revealed.value)
         }
     }
 }
@@ -63,7 +81,7 @@ class MainActivity : ComponentActivity() {
 private const val STALE_MS = 30 * 60_000L
 
 @Composable
-fun App(startTab: String = "BRIEF") {
+fun App(startTab: String = "BRIEF", revealed: Boolean = true) {
     val ctx = LocalContext.current
     val store = remember { prefs(ctx) }
     var json by remember { mutableStateOf(store.getString("json", null)) }
@@ -184,8 +202,9 @@ fun App(startTab: String = "BRIEF") {
         if (i == -1 && !hasPerm) permission.launch(Manifest.permission.ACCESS_COARSE_LOCATION) else refresh()
     }
 
+    val reveal by animateFloatAsState(if (revealed) 1f else 0f, tween(900, easing = LinearEasing), label = "reveal")
     Box(Modifier.fillMaxSize().background(Black)) {
-        TerrainBackground(brief?.nowPrecip ?: Precip.NONE)
+        TerrainBackground(brief?.nowPrecip ?: Precip.NONE, reveal)
         Column(
             Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.systemBars).padding(20.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
@@ -231,7 +250,7 @@ fun App(startTab: String = "BRIEF") {
                         onGps = ::setGps,
                     )
                     tab == "RADAR" -> RadarBody(radar, radarNote)
-                    brief != null -> BriefBody(brief)
+                    brief != null -> BriefBody(brief, revealed)
                     !hasPerm && active == -1 -> T("GRANT LOCATION TO RECEIVE A BRIEF", Modifier.clickable {
                         permission.launch(Manifest.permission.ACCESS_COARSE_LOCATION)
                     }, color = Dim)
