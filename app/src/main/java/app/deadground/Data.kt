@@ -127,6 +127,48 @@ object OpenMeteo {
         return Scope(keep.map { times.getString(it) }, cells)
     }
 
+    /** European AQI at the alert position, same provider. */
+    fun fetchAqi(lat: Double, lon: Double): Int? =
+        JSONObject(get("https://air-quality-api.open-meteo.com/v1/air-quality?latitude=$lat&longitude=$lon&current=european_aqi"))
+            .getJSONObject("current").optInt("european_aqi", -1).takeIf { it >= 0 }
+
+    /**
+     * Whole-country MeteoAlarm feed: the request carries the country, never the position.
+     * ponytail: country-wide, the area name is shown in the alert; per-region matching once we've seen real feeds.
+     */
+    fun fetchWarnings(country: String = "latvia"): List<Warning> {
+        val arr = JSONObject(get("https://feeds.meteoalarm.org/api/v1/warnings/feeds-$country")).optJSONArray("warnings")
+            ?: return emptyList()
+        return (0 until arr.length()).mapNotNull { i -> runCatching { warning(arr.getJSONObject(i)) }.getOrNull() }
+    }
+
+    private fun warning(w: JSONObject): Warning {
+        val alert = w.getJSONObject("alert")
+        val infos = alert.getJSONArray("info").let { a -> (0 until a.length()).map { a.getJSONObject(it) } }
+        val info = infos.firstOrNull { it.optString("language").startsWith("en") } ?: infos.first()
+        val params = info.optJSONArray("parameter")?.let { a ->
+            (0 until a.length()).associate { a.getJSONObject(it).optString("valueName") to a.getJSONObject(it).optString("value") }
+        }.orEmpty()
+        // awareness_level looks like "3; orange; Severe"; fall back to CAP severity.
+        val level = params["awareness_level"]?.substringBefore(";")?.trim()?.toIntOrNull()
+            ?: when (info.optString("severity")) {
+                "Extreme" -> 4
+                "Severe" -> 3
+                "Moderate" -> 2
+                else -> 1
+            }
+        val type = params["awareness_type"]?.substringAfter(";")?.trim()?.uppercase()?.takeIf { it.isNotEmpty() }
+            ?: info.optString("event").uppercase()
+        val areas = info.optJSONArray("area")?.let { a -> (0 until a.length()).map { a.getJSONObject(it).optString("areaDesc") } }.orEmpty()
+        val onset = info.optString("onset").ifEmpty { info.getString("effective") }
+        val expires = info.getString("expires")
+        fun ms(t: String) = java.time.OffsetDateTime.parse(t).toInstant().toEpochMilli()
+        return Warning(
+            w.optString("uuid").ifEmpty { alert.optString("identifier") }, level, type,
+            areas.joinToString(", ").uppercase().take(40), onset.substring(11, 16), expires.substring(11, 16), ms(onset), ms(expires),
+        )
+    }
+
     /** Place search sends only the typed text, never your position. */
     fun search(query: String): List<Place> {
         val o = JSONObject(
@@ -174,4 +216,39 @@ object OpenMeteo {
             slots,
         )
     }
+}
+
+// ---- Small persisted state for alerts ----
+
+fun saveWarnings(ctx: Context, ws: List<Warning>) {
+    val a = JSONArray(ws.map {
+        JSONObject().put("id", it.id).put("level", it.level).put("type", it.type).put("area", it.area)
+            .put("onset", it.onset).put("expires", it.expires).put("onsetMs", it.onsetMs).put("expiresMs", it.expiresMs)
+    })
+    prefs(ctx).edit().putString("warnings", a.toString()).apply()
+}
+
+fun loadWarnings(ctx: Context): List<Warning> = runCatching {
+    val a = JSONArray(prefs(ctx).getString("warnings", "[]"))
+    (0 until a.length()).map { a.getJSONObject(it) }.map {
+        Warning(
+            it.getString("id"), it.getInt("level"), it.getString("type"), it.getString("area"),
+            it.getString("onset"), it.getString("expires"), it.getLong("onsetMs"), it.getLong("expiresMs"),
+        )
+    }
+}.getOrDefault(emptyList())
+
+fun loadSent(ctx: Context): Map<String, Long> = runCatching {
+    val o = JSONObject(prefs(ctx).getString("sent", "{}"))
+    o.keys().asSequence().associateWith { o.getLong(it) }
+}.getOrDefault(emptyMap())
+
+fun saveSent(ctx: Context, sent: Map<String, Long>) =
+    prefs(ctx).edit().putString("sent", JSONObject(sent as Map<*, *>).toString()).apply()
+
+fun coords(ctx: Context, latKey: String, lonKey: String): Pair<Double, Double>? {
+    val p = prefs(ctx)
+    val lat = p.getString(latKey, null)?.toDoubleOrNull() ?: return null
+    val lon = p.getString(lonKey, null)?.toDoubleOrNull() ?: return null
+    return lat to lon
 }

@@ -48,7 +48,7 @@ class DeadGroundWidget : AppWidgetProvider() {
             val ids = mgr.getAppWidgetIds(ComponentName(ctx, DeadGroundWidget::class.java))
             if (ids.isEmpty()) return
             val brief = prefs(ctx).getString("json", null)
-                ?.let { runCatching { derive(OpenMeteo.parse(it)) }.getOrNull() }
+                ?.let { runCatching { applyWarnings(derive(OpenMeteo.parse(it)), loadWarnings(ctx), System.currentTimeMillis()) }.getOrNull() }
             val open = PendingIntent.getActivity(
                 ctx, 0, Intent(ctx, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE,
             )

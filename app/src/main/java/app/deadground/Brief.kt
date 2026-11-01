@@ -42,6 +42,9 @@ private fun hh(t: String) = t.substring(11, 13)
 private fun hhmm(t: String) = t.substring(11, 16)
 private fun hourBefore(t: String) = "%02d".format((hh(t).toInt() + 23) % 24)
 
+/** Start of the hour an hourly value covers: "21:00" for the value stamped 22:00. */
+internal fun hourStart(t: String) = "${hourBefore(t)}:00"
+
 fun level(mm: Double) = when {
     mm < WET -> 0
     mm < 0.5 -> 1
@@ -75,13 +78,13 @@ fun condition(code: Int) = when (code) {
     else -> "—"
 }
 
-private fun name(p: Precip) = when (p) {
+internal fun precipName(p: Precip) = when (p) {
     Precip.SNOW -> "SNOW"
     Precip.ICE -> "FREEZING RAIN"
     else -> "RAIN"
 }
 
-private fun amount(x: Double) = if (x < 1) "%.1f".format(Locale.US, x) else x.roundToInt().toString()
+internal fun amountText(x: Double) = if (x < 1) "%.1f".format(Locale.US, x) else x.roundToInt().toString()
 
 /** Hours (indices relative to [from]) with ice: freezing precip, or at/below 0° within 6 h of wet ground. */
 internal fun iceIn(all: List<Hour>, from: Int, count: Int): List<Int> {
@@ -168,10 +171,10 @@ fun derive(f: Forecast): Brief {
 
     val firstWet = types.indexOfFirst { it != Precip.NONE }
     val reason = when {
-        wetNow -> "${name(types.firstOrNull { it != Precip.NONE } ?: Precip.RAIN)} NOW"
-        firstWetSlot != null -> "${name(types.getOrNull(firstWet) ?: Precip.RAIN)} INBOUND ~${hhmm(firstWetSlot.time)}"
+        wetNow -> "${precipName(types.firstOrNull { it != Precip.NONE } ?: Precip.RAIN)} NOW"
+        firstWetSlot != null -> "${precipName(types.getOrNull(firstWet) ?: Precip.RAIN)} INBOUND ~${hhmm(firstWetSlot.time)}"
         // Hourly sees a little, 15-min never crosses the threshold: say so instead of claiming it's inbound.
-        firstWet >= 0 -> "TRACE ${name(types[firstWet])} ~${hourBefore(next24[firstWet].time)}:00"
+        firstWet >= 0 -> "TRACE ${precipName(types[firstWet])} ~${hourBefore(next24[firstWet].time)}:00"
         else -> "NO PRECIP 24H"
     }
 
@@ -191,8 +194,8 @@ fun derive(f: Forecast): Brief {
     }
     val stripLegend = seen.joinToString(" ▸ ") {
         when (it) {
-            Precip.RAIN -> "RAIN ${amount(next24.filterIndexed { i, _ -> types[i] == Precip.RAIN }.sumOf { h -> h.precip })} MM"
-            Precip.SNOW -> "SNOW ${amount(next24.sumOf { h -> h.snowCm })} CM"
+            Precip.RAIN -> "RAIN ${amountText(next24.filterIndexed { i, _ -> types[i] == Precip.RAIN }.sumOf { h -> h.precip })} MM"
+            Precip.SNOW -> "SNOW ${amountText(next24.sumOf { h -> h.snowCm })} CM"
             else -> "ICE $iceSpan"
         }
     }.ifEmpty { "DRY 24H" }

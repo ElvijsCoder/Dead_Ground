@@ -121,4 +121,46 @@ class BriefTest {
         check(scopePoints(56.95, 24.11).size == 25)
         check(compass(350.0) == "N" && compass(200.0) == "S")
     }
+
+    @Test
+    fun alertsOnMixedDay() {
+        val f = mixedDay()
+        val at1600 = f.copy(current = f.current.copy(time = "2026-11-01T16:00"))
+        val a = evaluate(at1600, null, emptyList(), 0L)
+        val rain = a.single { it.key.startsWith("rain:") }
+        check(rain.key == "rain:2026-11-01T16:45" && rain.lines[2] == "WINDOW CLOSES T−45") { "$rain" }
+        check(a.any { it.key == "type:2026-11-01:ICE" }) { "$a" }
+
+        val at1800 = f.copy(current = f.current.copy(time = "2026-11-01T18:00", precip = 1.0))
+        val b = evaluate(at1800, 72, emptyList(), 0L)
+        check(b.none { it.key.startsWith("rain:") }) { "raining already: $b" }
+        check(b.any { it.key == "ice-eve:2026-11-01" && it.prec == Prec.IMMEDIATE }) { "$b" }
+        check(b.any { it.key == "air:2026-11-01" }) { "$b" }
+    }
+
+    @Test
+    fun gateHonoursQuietHoursCapAndDedupe() {
+        val now = 100 * 3_600_000L
+        fun al(k: String, p: Prec = Prec.PRIORITY) = Alert(k, "x", p, listOf(k), 3)
+        // Quiet hours: only FLASH passes.
+        check(gate(listOf(al("a"), al("warn4:r", Prec.FLASH)), emptyMap(), 23, now).map { it.key } == listOf("warn4:r"))
+        // Already sent never repeats; rain cools down for 3 h.
+        check(gate(listOf(al("a")), mapOf("a" to 0L), 12, now).isEmpty())
+        check(gate(listOf(al("rain:2")), mapOf("rain:1" to now - 3_600_000L), 12, now).isEmpty())
+        // Cap: 3 sent in the last 24 h → only one more gets through.
+        val sent = mapOf("s1" to now - 1, "s2" to now - 1, "s3" to now - 1)
+        check(gate(listOf(al("b"), al("c")), sent, 12, now).map { it.key } == listOf("b"))
+    }
+
+    @Test
+    fun warningsOutrankModel() {
+        val now = 1_000_000L
+        val w = Warning("x", 3, "WIND", "RĪGA", "18:00", "23:00", now - 1, now + 3_600_000L)
+        val b = applyWarnings(derive(mixedDay()), listOf(w), now)
+        check(b.wxcon == 2 && b.threat == "ORANGE · WIND" && b.threatWhen == "18:00–23:00") { "$b" }
+        val a = evaluate(mixedDay(), null, listOf(w), now).single { it.key == "warn3:x" }
+        check(a.prec == Prec.IMMEDIATE && a.lines[1] == "WIND // RĪGA") { "$a" }
+        check(applyWarnings(derive(mixedDay()), listOf(w.copy(expiresMs = now - 1)), now).threat == "ICE")
+        check(wxconBar(2) == "WXCON  5 4 3 [2] 1")
+    }
 }

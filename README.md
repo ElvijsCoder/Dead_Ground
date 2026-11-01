@@ -5,6 +5,8 @@ Private weather brief for one person. No account, no trackers, no Play Services 
 ## Privacy
 - Location: coarse permission only, rounded to 2 decimals (~1 km) before it leaves the phone.
 - Weather and place search: Open-Meteo (no key, no account). That is the only network destination.
+- Official warnings: MeteoAlarm's whole-country feed (Latvia) is downloaded and checked on the phone; MeteoAlarm never sees a position.
+- Air quality: Open-Meteo air-quality API, same provider.
 - Radar is a MODEL SCOPE: Open-Meteo 15-min forecasts for 24 points around the AO, not live radar.
 - Place search sends only the typed text. Saved AOs live on the device; the AO tab fetches them in one request.
 - Note: on phones with Google services, Android's *network* location provider is itself
@@ -30,13 +32,17 @@ and you have to uninstall once.
 - `Ui.kt` — flap tiles, topo background + rain/snow layer, brief screen, nav
 - `Scope.kt` — model scope logic: ring of 25 points, contact, ETA, motion (tested)
 - `Screens.kt` — Radar scope, 7 Day ops calendar, AO roster with search
+- `Alerts.kt` — alert rules, quiet hours/cap gate, warnings → WXCON (tested)
+- `Notify.kt` — 30-min JobScheduler check, notifications, ACK
 - `Widget.kt` — home screen widget, drawn as one bitmap, refreshes for the last AO
 - `MainActivity.kt` — permission, cache, refresh
 
 ## Milestones
 1. Data + Brief ✓
 2. Widget (W3 terrain, resizable 4×2 / 2×2) ✓
-3. **Radar (model scope), 7 Day (ops calendar), AO (roster + place search)** ← this build
-4. Alerts (signal format, quiet hours, daily cap) + MeteoAlarm warnings
+3. Radar (model scope), 7 Day (ops calendar), AO (roster + place search) ✓
+4. **Alerts** ← this build: rain inbound, precip type change, ice, MeteoAlarm warnings, air quality.
+   Signal format, quiet hours 22–07, max 4 per 24 h (red warnings always break through).
+   Alerts follow the last CURRENT POS fix — no background location permission.
 
 Fonts: Oswald, Share Tech Mono (SIL OFL, see `licenses/`).

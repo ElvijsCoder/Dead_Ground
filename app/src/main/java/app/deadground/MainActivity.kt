@@ -2,6 +2,7 @@ package app.deadground
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -43,14 +44,16 @@ import kotlinx.coroutines.withContext
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContent { App() }
+        AlertJob.schedule(this)
+        val start = intent.getStringExtra("tab") ?: "BRIEF" // notification actions open a tab
+        setContent { App(start) }
     }
 }
 
 private const val STALE_MS = 30 * 60_000L
 
 @Composable
-fun App() {
+fun App(startTab: String = "BRIEF") {
     val ctx = LocalContext.current
     val store = remember { prefs(ctx) }
     var json by remember { mutableStateOf(store.getString("json", null)) }
@@ -59,7 +62,8 @@ fun App() {
     var hasPerm by remember {
         mutableStateOf(ctx.checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED)
     }
-    var tab by remember { mutableStateOf("BRIEF") }
+    var tab by remember { mutableStateOf(startTab) }
+    var warnings by remember { mutableStateOf(loadWarnings(ctx)) }
     var aos by remember { mutableStateOf(loadAos(ctx)) }
     var active by remember { mutableIntStateOf(store.getInt("active", -1).takeIf { it < aos.size } ?: -1) }
     var roster by remember { mutableStateOf<List<Brief?>>(emptyList()) }
@@ -68,7 +72,9 @@ fun App() {
     var radarAt by remember { mutableLongStateOf(0L) }
     val scope = rememberCoroutineScope()
     val forecast = remember(json) { json?.let { runCatching { OpenMeteo.parse(it) }.getOrNull() } }
-    val brief = remember(forecast) { forecast?.let { runCatching { derive(it) }.getOrNull() } }
+    val brief = remember(forecast, warnings) {
+        forecast?.let { runCatching { applyWarnings(derive(it), warnings, System.currentTimeMillis()) }.getOrNull() }
+    }
     val days = remember(forecast) { forecast?.let { runCatching { week(it) }.getOrNull() }.orEmpty() }
     var hereBrief by remember { mutableStateOf(if (active == -1) brief else null) }
 
@@ -77,9 +83,15 @@ fun App() {
             status = "ACQUIRING…"
             runCatching {
                 val (lat, lon) = aos.getOrNull(active)?.let { it.lat to it.lon } ?: locate(ctx) ?: error("no fix")
-                withContext(Dispatchers.IO) { fetchAndStore(ctx, lat, lon).also { DeadGroundWidget.renderAll(ctx) } }
+                // Alerts follow the last CURRENT POS fix, whatever AO the screen shows.
+                if (active == -1) store.edit().putString("here_lat", "$lat").putString("here_lon", "$lon").apply()
+                withContext(Dispatchers.IO) {
+                    runCatching { saveWarnings(ctx, OpenMeteo.fetchWarnings()) }
+                    fetchAndStore(ctx, lat, lon).also { DeadGroundWidget.renderAll(ctx) }
+                }
             }.onSuccess {
                 json = it
+                warnings = loadWarnings(ctx)
                 fetchedAt = store.getLong("at", 0L)
                 if (active == -1) hereBrief = runCatching { derive(OpenMeteo.parse(it)) }.getOrNull()
                 status = null
@@ -87,13 +99,23 @@ fun App() {
         }
     }
 
+    val notifPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
+    fun askNotifications() {
+        if (Build.VERSION.SDK_INT >= 33 &&
+            ctx.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) notifPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+    }
     val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         hasPerm = granted
         if (granted) refresh()
+        askNotifications() // one dialog at a time: alerts permission right after location
     }
     LaunchedEffect(Unit) {
         if (!hasPerm && active == -1) permission.launch(Manifest.permission.ACCESS_COARSE_LOCATION)
-        else if (System.currentTimeMillis() - fetchedAt > STALE_MS) refresh()
+        else {
+            askNotifications()
+            if (System.currentTimeMillis() - fetchedAt > STALE_MS) refresh()
+        }
     }
     // Roster temps for every saved AO, in one request, only while the AO tab is open.
     LaunchedEffect(tab, aos) {
