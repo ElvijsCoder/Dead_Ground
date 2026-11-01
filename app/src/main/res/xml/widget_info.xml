@@ -2,6 +2,7 @@
 <!-- One resizable widget: 4×2 terrain layout when wide, 2×2 compact when narrow -->
 <appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
     android:initialLayout="@layout/widget"
+    android:previewImage="@drawable/widget_preview"
     android:minWidth="110dp"
     android:minHeight="110dp"
     android:minResizeWidth="110dp"

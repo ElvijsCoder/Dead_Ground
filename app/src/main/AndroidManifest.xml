@@ -3,8 +3,10 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <!-- Lets the alert job wait for a connection (required for network-constrained jobs on Android 14+) -->
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
-    <!-- Coarse only: we round to ~1 km anyway, so fine location would be wasted precision -->
+    <!-- Coarse by default: we round to ~1 km anyway -->
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <!-- Only requested if you switch on GPS-only mode (Android gives GPS to precise-permission apps only) -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- Only so the 30-min alert check is re-armed after a reboot -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />

@@ -1,5 +1,16 @@
 package app.deadground
 
+import androidx.compose.animation.core.Animatable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -72,12 +83,73 @@ fun T(
 @Composable
 fun FlapTiles(text: String, w: Dp, h: Dp, size: TextUnit) {
     Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-        text.forEach { ch ->
-            Box(Modifier.size(w, h).background(TileBg, RoundedCornerShape(3.dp)), contentAlignment = Alignment.Center) {
-                BasicText(ch.toString(), style = TextStyle(color = White, fontSize = size, fontFamily = Flap))
-                Box(Modifier.fillMaxWidth().height(2.dp).background(Black)) // the split
-            }
+        text.forEachIndexed { i, ch -> key(i) { FlapTile(ch, w, h, size) } }
+    }
+}
+
+/**
+ * One split-flap tile. The glyph is centred on the split by the ink of "0", not the font's
+ * line box (Oswald sits low in its box, which is why 8 used to show more below the split).
+ * When the character changes: the old top half falls to the split, then the new bottom half falls into place.
+ */
+@Composable
+private fun FlapTile(ch: Char, w: Dp, h: Dp, size: TextUnit) {
+    var current by remember { mutableStateOf(ch) }
+    var previous by remember { mutableStateOf(ch) }
+    val flip = remember { Animatable(1f) }
+    LaunchedEffect(ch) {
+        if (ch != current) {
+            previous = current
+            current = ch
+            flip.snapTo(0f)
+            flip.animateTo(1f, tween(420, easing = LinearEasing))
         }
+    }
+    val p = flip.value
+    Box(Modifier.size(w, h)) {
+        FlapHalf(current, top = true, w, h, size, Modifier.align(Alignment.TopCenter))
+        FlapHalf(if (p < 1f) previous else current, top = false, w, h, size, Modifier.align(Alignment.BottomCenter))
+        if (p < 0.5f) {
+            FlapHalf(
+                previous, top = true, w, h, size,
+                Modifier.align(Alignment.TopCenter).graphicsLayer {
+                    rotationX = -180f * p // 0 → -90: falls toward you
+                    transformOrigin = TransformOrigin(0.5f, 1f)
+                    cameraDistance = 16f * density
+                },
+            )
+        } else if (p < 1f) {
+            FlapHalf(
+                current, top = false, w, h, size,
+                Modifier.align(Alignment.BottomCenter).graphicsLayer {
+                    rotationX = 180f * (1f - p) // 90 → 0: lands
+                    transformOrigin = TransformOrigin(0.5f, 0f)
+                    cameraDistance = 16f * density
+                },
+            )
+        }
+        Box(Modifier.fillMaxWidth().height(2.dp).align(Alignment.Center).background(Black)) // the split
+    }
+}
+
+@Composable
+private fun FlapHalf(ch: Char, top: Boolean, w: Dp, h: Dp, size: TextUnit, modifier: Modifier) {
+    val ctx = LocalContext.current
+    val paint = remember {
+        android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            typeface = ctx.resources.getFont(R.font.oswald)
+            color = android.graphics.Color.WHITE
+            textAlign = android.graphics.Paint.Align.CENTER
+        }
+    }
+    val corner = 3.dp
+    val shape = if (top) RoundedCornerShape(topStart = corner, topEnd = corner) else RoundedCornerShape(bottomStart = corner, bottomEnd = corner)
+    Canvas(modifier.size(w, h / 2).clip(shape).background(TileBg)) {
+        paint.textSize = size.toPx()
+        val ink = android.graphics.Rect().also { paint.getTextBounds("0", 0, 1, it) }
+        val full = this.size.height * 2
+        val baseline = full / 2 - ink.exactCenterY() - if (top) 0f else this.size.height
+        drawContext.canvas.nativeCanvas.drawText(ch.toString(), this.size.width / 2, baseline, paint)
     }
 }
 

@@ -140,6 +140,8 @@ fun AoBody(
     onAdd: (Place) -> Unit,
     onRemove: (Int) -> Unit,
     search: suspend (String) -> List<Place>,
+    gps: Boolean,
+    onGps: (Boolean) -> Unit,
 ) {
     var query by remember { mutableStateOf("") }
     var results by remember { mutableStateOf<List<Place>>(emptyList()) }
@@ -197,6 +199,22 @@ fun AoBody(
             )
         }
         T("ALERTS FOLLOW CURRENT POS ONLY\nSAVED AOS STORED ON THIS DEVICE", size = 12, color = Dim)
+
+        T("LOCATION SOURCE", size = 12, color = Dim, spacing = 0.16f)
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            listOf(false to "NETWORK", true to "GPS ONLY").forEach { (value, label) ->
+                Box(
+                    Modifier.weight(1f).heightIn(min = 44.dp).background(if (gps == value) White else Black)
+                        .border(1.dp, if (gps == value) White else Line).clickable { onGps(value) },
+                    contentAlignment = Alignment.Center,
+                ) { T(label, color = if (gps == value) Black else White, spacing = 0.12f) }
+            }
+        }
+        T(
+            if (gps) "SATELLITE FIX ONLY · NO NETWORK SERVICE ASKED\nSLOWER INDOORS · STILL ROUNDED TO ±1 KM"
+            else "FAST · ON PHONES WITH GOOGLE SERVICES THE FIX\nCOMES FROM GOOGLE · ROUNDED TO ±1 KM",
+            size = 12, color = Dim,
+        )
     }
 }
 

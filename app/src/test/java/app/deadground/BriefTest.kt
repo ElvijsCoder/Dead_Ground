@@ -163,4 +163,14 @@ class BriefTest {
         check(applyWarnings(derive(mixedDay()), listOf(w.copy(expiresMs = now - 1)), now).threat == "ICE")
         check(wxconBar(2) == "WXCON  5 4 3 [2] 1")
     }
+
+    @Test
+    fun widgetSymbols() {
+        check(symbolFor(0, true) == Sym.SUN && symbolFor(1, false) == Sym.MOON)
+        check(symbolFor(3, true) == Sym.CLOUD && symbolFor(45, false) == Sym.CLOUD)
+        check(symbolFor(61, true) == Sym.RAIN && symbolFor(81, false) == Sym.RAIN && symbolFor(95, true) == Sym.RAIN)
+        check(symbolFor(73, true) == Sym.SNOW && symbolFor(86, false) == Sym.SNOW)
+        val f = mixedDay()
+        check(derive(f.copy(current = f.current.copy(code = 0, isDay = false))).symbol == Sym.MOON)
+    }
 }

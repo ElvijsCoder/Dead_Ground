@@ -74,6 +74,7 @@ fun App(startTab: String = "BRIEF") {
     }
     var tab by remember { mutableStateOf(startTab) }
     var warnings by remember { mutableStateOf(loadWarnings(ctx)) }
+    var gps by remember { mutableStateOf(gpsOnly(ctx)) }
     var aos by remember { mutableStateOf(loadAos(ctx)) }
     var active by remember { mutableIntStateOf(store.getInt("active", -1).takeIf { it < aos.size } ?: -1) }
     var roster by remember { mutableStateOf<List<Brief?>>(emptyList()) }
@@ -119,6 +120,28 @@ fun App(startTab: String = "BRIEF") {
         hasPerm = granted
         if (granted) refresh()
         askNotifications() // one dialog at a time: alerts permission right after location
+    }
+    // GPS-only needs precise permission; Android 12+ only shows the dialog when coarse is asked for alongside.
+    val precise = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->
+        if (result[Manifest.permission.ACCESS_FINE_LOCATION] == true) {
+            gps = true
+            store.edit().putBoolean("gps_only", true).apply()
+            if (active == -1) refresh()
+        }
+    }
+    fun setGps(on: Boolean) {
+        when {
+            !on -> {
+                gps = false
+                store.edit().putBoolean("gps_only", false).apply()
+            }
+            ctx.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED -> {
+                gps = true
+                store.edit().putBoolean("gps_only", true).apply()
+                if (active == -1) refresh()
+            }
+            else -> precise.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
+        }
     }
     LaunchedEffect(Unit) {
         if (!hasPerm && active == -1) permission.launch(Manifest.permission.ACCESS_COARSE_LOCATION)
@@ -178,7 +201,7 @@ fun App(startTab: String = "BRIEF") {
                     Modifier.heightIn(min = 44.dp).border(1.dp, White).clickable { tab = "AO" }.padding(horizontal = 14.dp),
                     contentAlignment = Alignment.Center,
                 ) { T("AO ▸ $aoName", spacing = 0.12f) }
-                T("GRID ±1 KM", color = Dim)
+                T(if (gps) "GRID ±1 KM · GPS" else "GRID ±1 KM", color = Dim)
             }
             status?.let {
                 T(it, Modifier.clickable { if (hasPerm || active >= 0) refresh() }, color = if (it.startsWith("SIGNAL")) Red else Dim)
@@ -204,6 +227,8 @@ fun App(startTab: String = "BRIEF") {
                             }
                         },
                         search = { q -> withContext(Dispatchers.IO) { OpenMeteo.search(q) } },
+                        gps = gps,
+                        onGps = ::setGps,
                     )
                     tab == "RADAR" -> RadarBody(radar, radarNote)
                     brief != null -> BriefBody(brief)

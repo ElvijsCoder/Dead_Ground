@@ -9,8 +9,8 @@ Private weather brief for one person. No account, no trackers, no Play Services 
 - Air quality: Open-Meteo air-quality API, same provider.
 - Radar is a MODEL SCOPE: Open-Meteo 15-min forecasts for 24 points around the AO, not live radar.
 - Place search sends only the typed text. Saved AOs live on the device; the AO tab fetches them in one request.
-- Note: on phones with Google services, Android's *network* location provider is itself
-  answered by Google. A GPS-only mode is planned for later.
+- Location source (AO tab): NETWORK (default, fast; on phones with Google services answered by Google)
+  or GPS ONLY (satellite fix, no network service asked, needs precise permission, slower indoors).
 
 ## Build and updates
 Every push to `main` runs the tests, builds a signed APK and publishes it as a GitHub Release

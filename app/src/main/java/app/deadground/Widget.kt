@@ -130,11 +130,18 @@ object WidgetArt {
             val tempBase = pad + big.textSize * 0.82f
             c.drawText(tempStr, pad, tempBase, big)
 
+            // Dot-matrix symbol: beside the temperature (4×2) or top-right (2×2).
+            val dot = if (wide) big.textSize * 0.04f else 2.4f * d // symbol ≈ digit height
+            val symW = dot * 2 * 9
+            val symX = if (wide) pad + big.measureText(tempStr) + 12 * d else w - pad - symW
+            val symY = if (wide) tempBase - big.textSize * 0.72f else pad
+            drawSymbol(c, b.symbol, symX, symY, dot)
+
             val head = DeadGroundWidget.headline(b)
             val headColor = if (b.go) GREEN else RED
             if (wide) {
                 val right = w - pad
-                val maxW = right - (pad + big.measureText(tempStr) + 16 * d)
+                val maxW = right - (symX + symW + 12 * d)
                 val cond = "${b.condition} · FEELS ${b.feels}°"
                 c.drawText(head, right, pad + 12 * d, shrink(text(13f, headColor, mono, Paint.Align.RIGHT), head, maxW))
                 c.drawText(cond, right, pad + 30 * d, shrink(text(12f, DIM, mono, Paint.Align.RIGHT), cond, maxW))
@@ -176,6 +183,25 @@ object WidgetArt {
 
         c.drawPath(shape, Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 2 * d; color = EDGE })
         return bmp
+    }
+
+    // 9×9 dot grids. '#' lit, '.' unlit (drawn faint so the matrix reads as a display).
+    private val SYMBOLS = mapOf(
+        Sym.SUN to listOf("....#....", ".#.....#.", "...###...", "..#####..", "#.#####.#", "..#####..", "...###...", ".#.....#.", "....#...."),
+        Sym.MOON to listOf("..####...", ".###.....", "###......", "###......", "###......", "###......", "###......", ".###.....", "..####..."),
+        Sym.CLOUD to listOf(".........", ".........", "...###...", "..#####..", ".#######.", "#########", "#########", ".#######.", "........."),
+        Sym.RAIN to listOf("...###...", "..#####..", ".#######.", "#########", ".........", ".#..#..#.", "#..#..#..", ".........", ".#..#..#."),
+        Sym.SNOW to listOf("...###...", "..#####..", ".#######.", "#########", ".........", ".#.#.#.#.", ".........", "#.#.#.#.#", "........."),
+    )
+
+    private fun drawSymbol(c: Canvas, sym: Sym, x: Float, y: Float, r: Float) {
+        val p = Paint(Paint.ANTI_ALIAS_FLAG)
+        SYMBOLS.getValue(sym).forEachIndexed { row, line ->
+            line.forEachIndexed { col, ch ->
+                p.color = if (ch == '#') WHITE else OFF
+                c.drawCircle(x + r + col * 2 * r, y + r + row * 2 * r, r * 0.78f, p)
+            }
+        }
     }
 }
 

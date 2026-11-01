@@ -18,14 +18,21 @@ import kotlin.math.roundToLong
 /** Two decimals ≈ 1 km grid. This is the only precision that ever leaves the phone. */
 fun round2(x: Double) = (x * 100).roundToLong() / 100.0
 
-/** Plain LocationManager, no Play Services library. Caller must hold ACCESS_COARSE_LOCATION. */
+fun gpsOnly(ctx: Context) = prefs(ctx).getBoolean("gps_only", false)
+
+/**
+ * Plain LocationManager, no Play Services library.
+ * Default: network provider (fast; on phones with Google services it is answered by Google).
+ * GPS-only mode: satellite fix only, nothing asked of any network service. Needs precise permission.
+ */
 @SuppressLint("MissingPermission")
 suspend fun locate(ctx: Context): Pair<Double, Double>? {
     val lm = ctx.getSystemService(LocationManager::class.java)
-    val enabled = lm.getProviders(true)
-    val provider = listOf(LocationManager.NETWORK_PROVIDER, LocationManager.GPS_PROVIDER)
+    val gps = gpsOnly(ctx)
+    val enabled = lm.getProviders(true).let { all -> if (gps) all.filter { it == LocationManager.GPS_PROVIDER } else all }
+    val provider = (if (gps) listOf(LocationManager.GPS_PROVIDER) else listOf(LocationManager.NETWORK_PROVIDER, LocationManager.GPS_PROVIDER))
         .firstOrNull { it in enabled } ?: return null
-    val fresh: Location? = withTimeoutOrNull(20_000) {
+    val fresh: Location? = withTimeoutOrNull(if (gps) 45_000 else 20_000) { // cold GPS fixes indoors are slow
         suspendCancellableCoroutine { cont ->
             val signal = CancellationSignal()
             cont.invokeOnCancellation { signal.cancel() }
@@ -79,7 +86,7 @@ private fun get(url: String): String {
 }
 
 object OpenMeteo {
-    private const val FIELDS = "&current=temperature_2m,apparent_temperature,weather_code,precipitation" +
+    private const val FIELDS = "&current=temperature_2m,apparent_temperature,weather_code,precipitation,is_day" +
         "&hourly=temperature_2m,precipitation,snowfall,weather_code,wind_gusts_10m" +
         "&timezone=auto&wind_speed_unit=ms&past_days=1"
 
@@ -210,7 +217,7 @@ object OpenMeteo {
         return Forecast(
             Current(
                 cur.getString("time"), cur.getDouble("temperature_2m"), cur.getDouble("apparent_temperature"),
-                cur.getInt("weather_code"), cur.optDouble("precipitation", 0.0),
+                cur.getInt("weather_code"), cur.optDouble("precipitation", 0.0), cur.optInt("is_day", 1) == 1,
             ),
             hours,
             slots,

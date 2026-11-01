@@ -6,12 +6,22 @@ import java.util.Locale
 import kotlin.math.roundToInt
 
 // Raw forecast, times are local ISO strings ("2026-11-01T14:15") so they compare as text.
-data class Current(val time: String, val temp: Double, val feels: Double, val code: Int, val precip: Double)
+data class Current(val time: String, val temp: Double, val feels: Double, val code: Int, val precip: Double, val isDay: Boolean = true)
 data class Hour(val time: String, val temp: Double, val precip: Double, val snowCm: Double, val code: Int, val gust: Double)
 data class Slot(val time: String, val precip: Double) // 15-minute precipitation
 data class Forecast(val current: Current, val hours: List<Hour>, val slots: List<Slot>)
 
 enum class Precip { NONE, RAIN, SNOW, ICE } // ordered by severity
+
+/** Widget dot-matrix symbol. */
+enum class Sym { SUN, MOON, CLOUD, RAIN, SNOW }
+
+fun symbolFor(code: Int, isDay: Boolean) = when (code) {
+    0, 1 -> if (isDay) Sym.SUN else Sym.MOON
+    in 71..77, 85, 86 -> Sym.SNOW
+    in 51..67, in 80..82, in 95..99 -> Sym.RAIN
+    else -> Sym.CLOUD // 2, 3, fog
+}
 
 data class StripCol(val hour: String, val type: Precip, val level: Int)
 
@@ -21,6 +31,7 @@ data class Brief(
     val feels: Int,
     val condition: String,
     val code: Int,
+    val symbol: Sym,
     val vsYesterday: Int?,
     val wxcon: Int,
     val reason: String,
@@ -218,6 +229,7 @@ fun derive(f: Forecast): Brief {
         feels = c.feels.roundToInt(),
         condition = condition(c.code),
         code = c.code,
+        symbol = symbolFor(c.code, c.isDay),
         vsYesterday = vs,
         wxcon = wxcon,
         reason = reason,
