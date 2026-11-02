@@ -4,6 +4,15 @@ import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import androidx.compose.animation.core.Animatable
+import androidx.compose.foundation.Canvas
+import androidx.compose.runtime.key
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -91,6 +100,16 @@ fun App(startTab: String = "BRIEF", revealed: Boolean = true) {
         mutableStateOf(ctx.checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED)
     }
     var tab by remember { mutableStateOf(startTab) }
+    // Scanline wipe between tabs: ~220 ms, terrain stays put, only the content refreshes.
+    var shownTab by remember { mutableStateOf(startTab) }
+    val wipe = remember { Animatable(1f) }
+    LaunchedEffect(tab) {
+        if (tab != shownTab) {
+            wipe.snapTo(0f)
+            wipe.animateTo(1f, tween(220, easing = LinearEasing))
+            shownTab = tab
+        }
+    }
     var warnings by remember { mutableStateOf(loadWarnings(ctx)) }
     var gps by remember { mutableStateOf(gpsOnly(ctx)) }
     var aos by remember { mutableStateOf(loadAos(ctx)) }
@@ -225,38 +244,71 @@ fun App(startTab: String = "BRIEF", revealed: Boolean = true) {
                 T(it, Modifier.clickable { if (hasPerm || active >= 0) refresh() }, color = if (it.startsWith("SIGNAL")) Red else Dim)
             }
 
-            Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
-                when {
-                    tab == "7 DAY" -> WeekBody(days)
-                    tab == "AO" -> AoBody(
-                        aos, active, hereBrief, if (active == -1) days else emptyList(), roster,
-                        onSelect = ::select,
-                        onAdd = { p ->
-                            aos = aos + p
-                            saveAos(ctx, aos)
-                        },
-                        onRemove = { i ->
-                            aos = aos.filterIndexed { j, _ -> j != i }
-                            saveAos(ctx, aos)
-                            roster = roster.filterIndexed { j, _ -> j != i }
-                            if (active == i) select(-1) else if (active > i) {
-                                active -= 1
-                                store.edit().putInt("active", active).apply()
-                            }
-                        },
-                        search = { q -> withContext(Dispatchers.IO) { OpenMeteo.search(q) } },
-                        gps = gps,
-                        onGps = ::setGps,
-                    )
-                    tab == "RADAR" -> RadarBody(radar, radarNote)
-                    brief != null -> BriefBody(brief, revealed)
-                    !hasPerm && active == -1 -> T("GRANT LOCATION TO RECEIVE A BRIEF", Modifier.clickable {
-                        permission.launch(Manifest.permission.ACCESS_COARSE_LOCATION)
-                    }, color = Dim)
-                    else -> T("AWAITING FIRST BRIEF", color = Dim)
+            // One page per tab. During a switch both render: new above the sweep line, old below it.
+            val pageContent: @Composable (String) -> Unit = { page ->
+                Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+                    when {
+                        page == "7 DAY" -> WeekBody(days)
+                        page == "AO" -> AoBody(
+                            aos, active, hereBrief, if (active == -1) days else emptyList(), roster,
+                            onSelect = ::select,
+                            onAdd = { p ->
+                                aos = aos + p
+                                saveAos(ctx, aos)
+                            },
+                            onRemove = { i ->
+                                aos = aos.filterIndexed { j, _ -> j != i }
+                                saveAos(ctx, aos)
+                                roster = roster.filterIndexed { j, _ -> j != i }
+                                if (active == i) select(-1) else if (active > i) {
+                                    active -= 1
+                                    store.edit().putInt("active", active).apply()
+                                }
+                            },
+                            search = { q -> withContext(Dispatchers.IO) { OpenMeteo.search(q) } },
+                            gps = gps,
+                            onGps = ::setGps,
+                        )
+                        page == "RADAR" -> RadarBody(radar, radarNote)
+                        brief != null -> BriefBody(brief, revealed)
+                        !hasPerm && active == -1 -> T("GRANT LOCATION TO RECEIVE A BRIEF", Modifier.clickable {
+                            permission.launch(Manifest.permission.ACCESS_COARSE_LOCATION)
+                        }, color = Dim)
+                        else -> T("AWAITING FIRST BRIEF", color = Dim)
+                    }
                 }
+            }
+            Box(Modifier.weight(1f)) {
+                val p = wipe.value
+                if (p < 1f && shownTab != tab) {
+                    key(shownTab) {
+                        Box(Modifier.fillMaxSize().drawWithContent { clipRect(top = size.height * p) { this@drawWithContent.drawContent() } }) {
+                            pageContent(shownTab)
+                        }
+                    }
+                }
+                key(tab) {
+                    Box(Modifier.fillMaxSize().drawWithContent { clipRect(bottom = size.height * p) { this@drawWithContent.drawContent() } }) {
+                        pageContent(tab)
+                    }
+                }
+                if (p < 1f) ScanLine(p)
             }
             Nav(tab) { tab = it }
         }
+    }
+}
+
+/** The refresh line: bright green edge with a faint trail above it. */
+@Composable
+private fun ScanLine(p: Float) {
+    Canvas(Modifier.fillMaxSize()) {
+        val y = size.height * p
+        val trail = 24.dp.toPx()
+        drawRect(
+            Brush.verticalGradient(listOf(Color.Transparent, Green.copy(alpha = 0.18f)), startY = y - trail, endY = y),
+            topLeft = Offset(0f, y - trail), size = Size(size.width, trail),
+        )
+        drawLine(Green, Offset(0f, y), Offset(size.width, y), 2.dp.toPx())
     }
 }
