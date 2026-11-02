@@ -7,7 +7,16 @@ import kotlin.math.roundToInt
 
 // Raw forecast, times are local ISO strings ("2026-11-01T14:15") so they compare as text.
 data class Current(val time: String, val temp: Double, val feels: Double, val code: Int, val precip: Double, val isDay: Boolean = true)
-data class Hour(val time: String, val temp: Double, val precip: Double, val snowCm: Double, val code: Int, val gust: Double)
+data class Hour(
+    val time: String,
+    val temp: Double,
+    val precip: Double, // total for the hour BEFORE [time]
+    val snowCm: Double,
+    val code: Int,
+    val gust: Double,
+    val feels: Double = temp,
+    val isDay: Boolean = true,
+)
 data class Slot(val time: String, val precip: Double) // 15-minute precipitation
 data class Forecast(val current: Current, val hours: List<Hour>, val slots: List<Slot>)
 
@@ -24,6 +33,17 @@ fun symbolFor(code: Int, isDay: Boolean) = when (code) {
 }
 
 data class StripCol(val hour: String, val type: Precip, val level: Int)
+
+/** One row of the expanded hourly list: the hour starting at [time]. */
+data class HourRow(
+    val time: String, // "20:00" = 20:00–21:00
+    val temp: Int,
+    val feels: Int,
+    val symbol: Sym,
+    val type: Precip,
+    val precip: String, // "1.5 MM", "2 CM", "—"
+    val gust: Int,
+)
 
 data class Brief(
     val stamp: String,
@@ -44,6 +64,7 @@ data class Brief(
     val stripLegend: String,
     val loadout: String,
     val nowPrecip: Precip,
+    val hourly: List<HourRow>,
 )
 
 private const val WET = 0.1 // mm; below this a slot/hour counts as dry
@@ -94,6 +115,8 @@ internal fun precipName(p: Precip) = when (p) {
     Precip.ICE -> "FREEZING RAIN"
     else -> "RAIN"
 }
+
+private fun fine(x: Double) = if (x < 10) "%.1f".format(Locale.US, x) else x.roundToInt().toString()
 
 internal fun amountText(x: Double) = if (x < 1) "%.1f".format(Locale.US, x) else x.roundToInt().toString()
 
@@ -222,7 +245,28 @@ fun derive(f: Forecast): Brief {
     val yesterday = LocalDateTime.parse(nowHour).minusDays(1).toString()
     val vs = f.hours.firstOrNull { it.time == yesterday }?.let { (c.temp - it.temp).roundToInt() }
 
+    // Hour starting at HH: temperature at HH, conditions/precip from the value stamped HH+1.
+    val hourly = next24.indices.mapNotNull { i ->
+        val start = f.hours.getOrNull(idx + i - 1) ?: return@mapNotNull null
+        val end = next24[i]
+        val type = if (i in iceHours) Precip.ICE else types[i]
+        HourRow(
+            time = hourStart(end.time),
+            temp = start.temp.roundToInt(),
+            feels = start.feels.roundToInt(),
+            symbol = symbolFor(end.code, start.isDay),
+            type = type,
+            precip = when { // hourly amounts are small: keep one decimal below 10
+                end.snowCm > 0 -> "${fine(end.snowCm)} CM"
+                end.precip >= WET -> "${fine(end.precip)} MM"
+                else -> "—"
+            },
+            gust = end.gust.roundToInt(),
+        )
+    }
+
     return Brief(
+        hourly = hourly,
         stamp = LocalDateTime.parse(c.time)
             .format(DateTimeFormatter.ofPattern("HHmm'L' · dd MMM", Locale.ENGLISH)).uppercase(),
         temp = c.temp.roundToInt(),

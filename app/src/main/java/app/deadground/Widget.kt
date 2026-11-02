@@ -185,18 +185,9 @@ object WidgetArt {
         return bmp
     }
 
-    // 9×9 dot grids. '#' lit, '.' unlit (drawn faint so the matrix reads as a display).
-    private val SYMBOLS = mapOf(
-        Sym.SUN to listOf("....#....", ".#.....#.", "...###...", "..#####..", "#.#####.#", "..#####..", "...###...", ".#.....#.", "....#...."),
-        Sym.MOON to listOf("..####...", ".###.....", "###......", "###......", "###......", "###......", "###......", ".###.....", "..####..."),
-        Sym.CLOUD to listOf(".........", ".........", "...###...", "..#####..", ".#######.", "#########", "#########", ".#######.", "........."),
-        Sym.RAIN to listOf("...###...", "..#####..", ".#######.", "#########", ".........", ".#..#..#.", "#..#..#..", ".........", ".#..#..#."),
-        Sym.SNOW to listOf("...###...", "..#####..", ".#######.", "#########", ".........", ".#.#.#.#.", ".........", "#.#.#.#.#", "........."),
-    )
-
     private fun drawSymbol(c: Canvas, sym: Sym, x: Float, y: Float, r: Float) {
         val p = Paint(Paint.ANTI_ALIAS_FLAG)
-        SYMBOLS.getValue(sym).forEachIndexed { row, line ->
+        SYMBOL_DOTS.getValue(sym).forEachIndexed { row, line ->
             line.forEachIndexed { col, ch ->
                 p.color = if (ch == '#') WHITE else OFF
                 c.drawCircle(x + r + col * 2 * r, y + r + row * 2 * r, r * 0.78f, p)

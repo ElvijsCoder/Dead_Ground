@@ -173,4 +173,15 @@ class BriefTest {
         val f = mixedDay()
         check(derive(f.copy(current = f.current.copy(code = 0, isDay = false))).symbol == Sym.MOON)
     }
+
+    @Test
+    fun hourlyRows() {
+        val h = derive(mixedDay()).hourly
+        check(h.size == 24) { "${h.size}" }
+        check(h[0].time == "14:00" && h[0].temp == 7 && h[0].precip == "—") { "${h[0]}" }
+        val r = h.first { it.time == "15:00" }
+        check(r.precip == "1.5 MM" && r.type == Precip.RAIN && r.symbol == Sym.RAIN) { "$r" }
+        val snow = h.first { it.time == "03:00" }
+        check(snow.type == Precip.SNOW && snow.precip == "1.0 CM" && snow.symbol == Sym.SNOW) { "$snow" }
+    }
 }

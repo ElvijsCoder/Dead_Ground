@@ -72,37 +72,7 @@ fun WeekBody(days: List<DayBrief>) {
     var sel by remember { mutableIntStateOf(0) }
     val d = days[sel.coerceIn(days.indices)]
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(3.dp)) {
-            days.forEachIndexed { i, day ->
-                Column(
-                    Modifier.weight(1f).background(Black).border(1.dp, if (i == sel) White else Line)
-                        .clickable { sel = i }.padding(horizontal = 3.dp, vertical = 6.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    T(day.label, size = 13, spacing = 0f)
-                    Box(Modifier.fillMaxWidth().height(40.dp).background(levelColor(day.wxcon)), contentAlignment = Alignment.Center) {
-                        T("${day.wxcon}", size = 24, color = Black, font = Flap, spacing = 0f)
-                    }
-                    T("${day.hi}°", size = 16, spacing = 0f)
-                    T("${day.lo}°", size = 13, color = Dim, spacing = 0f)
-                    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                        for (row in 2 downTo 0) {
-                            val block = Modifier.fillMaxWidth().height(12.dp)
-                            Box(
-                                when {
-                                    row >= day.level -> block.background(Off)
-                                    day.type == Precip.SNOW -> block.border(1.dp, White)
-                                    day.type == Precip.ICE -> block.background(Red)
-                                    else -> block.background(White)
-                                },
-                            )
-                        }
-                    }
-                    T(day.abbr, size = 12, color = Dim, spacing = 0f)
-                }
-            }
-        }
+        WeekGrid(days, sel) { sel = it }
 
         Column(
             Modifier.fillMaxWidth().border(1.dp, Line).background(Black).padding(12.dp),
@@ -128,6 +98,43 @@ fun WeekBody(days: List<DayBrief>) {
     }
 }
 
+/** Seven day columns: WXCON tile, hi/lo, precip blocks, code. Selectable on 7 DAY, read-only in AO. */
+@Composable
+fun WeekGrid(days: List<DayBrief>, sel: Int?, onSel: ((Int) -> Unit)?) {
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+        days.forEachIndexed { i, day ->
+            Column(
+                Modifier.weight(1f).background(Black).border(1.dp, if (i == sel) White else Line)
+                    .then(if (onSel != null) Modifier.clickable { onSel(i) } else Modifier)
+                    .padding(horizontal = 3.dp, vertical = 6.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                T(day.label, size = 13, spacing = 0f)
+                Box(Modifier.fillMaxWidth().height(40.dp).background(levelColor(day.wxcon)), contentAlignment = Alignment.Center) {
+                    T("${day.wxcon}", size = 24, color = Black, font = Flap, spacing = 0f)
+                }
+                T("${day.hi}°", size = 16, spacing = 0f)
+                T("${day.lo}°", size = 13, color = Dim, spacing = 0f)
+                Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    for (row in 2 downTo 0) {
+                        val block = Modifier.fillMaxWidth().height(12.dp)
+                        Box(
+                            when {
+                                row >= day.level -> block.background(Off)
+                                day.type == Precip.SNOW -> block.border(1.dp, White)
+                                day.type == Precip.ICE -> block.background(Red)
+                                else -> block.background(White)
+                            },
+                        )
+                    }
+                }
+                T(day.abbr, size = 12, color = Dim, spacing = 0f)
+            }
+        }
+    }
+}
+
 // ---- AO · roster ----
 
 @Composable
@@ -135,7 +142,8 @@ fun AoBody(
     aos: List<Place>,
     active: Int, // -1 = current position
     here: Brief?,
-    roster: List<Brief?>,
+    hereDays: List<DayBrief>, // empty unless CURRENT POS is the active AO
+    roster: List<Forecast?>,
     onSelect: (Int) -> Unit,
     onAdd: (Place) -> Unit,
     onRemove: (Int) -> Unit,
@@ -147,6 +155,7 @@ fun AoBody(
     var results by remember { mutableStateOf<List<Place>>(emptyList()) }
     var note by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
+    var open by remember { mutableStateOf<Int?>(null) } // -1 = CURRENT POS, i = saved, null = none
     fun runSearch() {
         if (query.isBlank()) return
         scope.launch {
@@ -190,13 +199,20 @@ fun AoBody(
             ) { T("+ ${p.name}", size = 13) }
         }
 
-        AoRow("CURRENT POS", "LIVE · ALERTS ON", here, active == -1, live = true, onClick = { onSelect(-1) })
+        AoRow("CURRENT POS", "LIVE · ALERTS ON", here, active == -1, live = true, onClick = { open = if (open == -1) null else -1 })
+        if (open == -1) WeekPanel(hereDays, active == -1) { onSelect(-1) }
         aos.forEachIndexed { i, p ->
+            val f = roster.getOrNull(i)
+            val b = remember(f) { f?.let { runCatching { derive(it) }.getOrNull() } }
             AoRow(
-                p.name.substringBefore(","), if (active == i) "ACTIVE" else "SAVED", roster.getOrNull(i), active == i,
-                live = false, onClick = { onSelect(i) }, onRemove = { onRemove(i) },
+                p.name.substringBefore(","), if (active == i) "ACTIVE" else "SAVED", b, active == i,
+                live = false, onClick = { open = if (open == i) null else i }, onRemove = { onRemove(i) },
                 country = p.name.substringAfterLast(", ", "").takeIf { it.length == 2 },
             )
+            if (open == i) {
+                val days = remember(f) { f?.let { runCatching { week(it) }.getOrNull() }.orEmpty() }
+                WeekPanel(days, active == i) { onSelect(i) }
+            }
         }
         T("ALERTS FOLLOW CURRENT POS ONLY\nSAVED AOS STORED ON THIS DEVICE", size = 12, color = Dim)
 
@@ -215,6 +231,23 @@ fun AoBody(
             else "FAST · ON PHONES WITH GOOGLE SERVICES THE FIX\nCOMES FROM GOOGLE · ROUNDED TO ±1 KM",
             size = 12, color = Dim,
         )
+    }
+}
+
+/** The strip that drops under an AO row: its week, plus the switch. */
+@Composable
+private fun WeekPanel(days: List<DayBrief>, isActive: Boolean, onActivate: () -> Unit) {
+    Column(
+        Modifier.fillMaxWidth().border(1.dp, Line).background(Black).padding(8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        if (days.isEmpty()) T(if (isActive) "AWAITING DATA" else "WEEK LOADS WHEN THIS AO IS ACTIVE", size = 12, color = Dim)
+        else WeekGrid(days, sel = null, onSel = null)
+        if (isActive) T("■ ACTIVE AO", size = 12, color = Green, spacing = 0.12f)
+        else Box(
+            Modifier.fillMaxWidth().heightIn(min = 44.dp).background(White).clickable(onClick = onActivate),
+            contentAlignment = Alignment.Center,
+        ) { T("SET AS AO", color = Black, spacing = 0.14f) }
     }
 }
 

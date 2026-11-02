@@ -95,7 +95,7 @@ fun App(startTab: String = "BRIEF", revealed: Boolean = true) {
     var gps by remember { mutableStateOf(gpsOnly(ctx)) }
     var aos by remember { mutableStateOf(loadAos(ctx)) }
     var active by remember { mutableIntStateOf(store.getInt("active", -1).takeIf { it < aos.size } ?: -1) }
-    var roster by remember { mutableStateOf<List<Brief?>>(emptyList()) }
+    var roster by remember { mutableStateOf<List<Forecast?>>(emptyList()) }
     var radar by remember { mutableStateOf<Scope?>(null) }
     var radarNote by remember { mutableStateOf<String?>(null) }
     var radarAt by remember { mutableLongStateOf(0L) }
@@ -172,8 +172,7 @@ fun App(startTab: String = "BRIEF", revealed: Boolean = true) {
     LaunchedEffect(tab, aos) {
         if (tab == "AO" && aos.isNotEmpty()) {
             roster = withContext(Dispatchers.IO) {
-                runCatching { OpenMeteo.fetchMany(aos).map { f -> runCatching { derive(f) }.getOrNull() } }
-                    .getOrElse { aos.map { null } }
+                runCatching { OpenMeteo.fetchMany(aos) }.getOrElse { aos.map { null } }
             }
         }
     }
@@ -230,7 +229,7 @@ fun App(startTab: String = "BRIEF", revealed: Boolean = true) {
                 when {
                     tab == "7 DAY" -> WeekBody(days)
                     tab == "AO" -> AoBody(
-                        aos, active, hereBrief, roster,
+                        aos, active, hereBrief, if (active == -1) days else emptyList(), roster,
                         onSelect = ::select,
                         onAdd = { p ->
                             aos = aos + p

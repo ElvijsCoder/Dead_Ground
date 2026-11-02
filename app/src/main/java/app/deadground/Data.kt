@@ -87,7 +87,7 @@ private fun get(url: String): String {
 
 object OpenMeteo {
     private const val FIELDS = "&current=temperature_2m,apparent_temperature,weather_code,precipitation,is_day" +
-        "&hourly=temperature_2m,precipitation,snowfall,weather_code,wind_gusts_10m" +
+        "&hourly=temperature_2m,precipitation,snowfall,weather_code,wind_gusts_10m,apparent_temperature,is_day" +
         "&timezone=auto&wind_speed_unit=ms&past_days=1"
 
     // No key, no account, no headers identifying the app or the phone.
@@ -101,7 +101,7 @@ object OpenMeteo {
         if (points.isEmpty()) return emptyList()
         val text = get(
             "https://api.open-meteo.com/v1/forecast?latitude=${points.joinToString(",") { "${it.lat}" }}" +
-                "&longitude=${points.joinToString(",") { "${it.lon}" }}$FIELDS&forecast_days=2",
+                "&longitude=${points.joinToString(",") { "${it.lon}" }}$FIELDS&forecast_days=7", // 7: the roster opens a week strip
         )
         return if (text.trimStart().startsWith("[")) {
             val a = JSONArray(text)
@@ -202,10 +202,14 @@ object OpenMeteo {
         val snow = h.getJSONArray("snowfall")
         val code = h.getJSONArray("weather_code")
         val gust = h.getJSONArray("wind_gusts_10m")
+        val feels = h.optJSONArray("apparent_temperature") // optional: older caches don't have these
+        val day = h.optJSONArray("is_day")
         val hours = (0 until time.length()).map { i ->
+            val t = temp.optDouble(i, 0.0)
             Hour(
-                time.getString(i), temp.optDouble(i, 0.0), precip.optDouble(i, 0.0),
+                time.getString(i), t, precip.optDouble(i, 0.0),
                 snow.optDouble(i, 0.0), code.optInt(i, 0), gust.optDouble(i, 0.0),
+                feels?.optDouble(i, t) ?: t, (day?.optInt(i, 1) ?: 1) == 1,
             )
         }
         // 15-min data is missing (null) in some regions; drop those slots so the hourly fallback kicks in.

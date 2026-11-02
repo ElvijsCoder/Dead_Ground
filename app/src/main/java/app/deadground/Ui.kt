@@ -31,6 +31,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
@@ -152,6 +153,27 @@ private fun FlapHalf(ch: Char, top: Boolean, w: Dp, h: Dp, size: TextUnit, modif
         val full = this.size.height * 2
         val baseline = full / 2 - ink.exactCenterY() - if (top) 0f else this.size.height
         drawContext.canvas.nativeCanvas.drawText(ch.toString(), this.size.width / 2, baseline, paint)
+    }
+}
+
+// 9×9 dot grids shared by the widget and the hourly list. '#' lit, '.' unlit.
+internal val SYMBOL_DOTS = mapOf(
+    Sym.SUN to listOf("....#....", ".#.....#.", "...###...", "..#####..", "#.#####.#", "..#####..", "...###...", ".#.....#.", "....#...."),
+    Sym.MOON to listOf("..####...", ".###.....", "###......", "###......", "###......", "###......", "###......", ".###.....", "..####..."),
+    Sym.CLOUD to listOf(".........", ".........", "...###...", "..#####..", ".#######.", "#########", "#########", ".#######.", "........."),
+    Sym.RAIN to listOf("...###...", "..#####..", ".#######.", "#########", ".........", ".#..#..#.", "#..#..#..", ".........", ".#..#..#."),
+    Sym.SNOW to listOf("...###...", "..#####..", ".#######.", "#########", ".........", ".#.#.#.#.", ".........", "#.#.#.#.#", "........."),
+)
+
+@Composable
+fun DotSymbol(sym: Sym, sizeDp: Dp) {
+    Canvas(Modifier.size(sizeDp)) {
+        val cell = this.size.width / 9
+        SYMBOL_DOTS.getValue(sym).forEachIndexed { row, line ->
+            line.forEachIndexed { col, ch ->
+                drawCircle(if (ch == '#') White else Off, cell * 0.39f, Offset(cell * (col + 0.5f), cell * (row + 0.5f)))
+            }
+        }
     }
 }
 
@@ -278,8 +300,12 @@ fun BriefBody(b: Brief, revealed: Boolean = true) {
             }
         }
 
-        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            T(b.stripLabel, size = 12, color = Dim, spacing = 0.16f)
+        var hourlyOpen by remember { mutableStateOf(false) }
+        Column(Modifier.clickable { hourlyOpen = !hourlyOpen }, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                T(b.stripLabel, size = 12, color = Dim, spacing = 0.16f)
+                T(if (hourlyOpen) "HOURLY ▴" else "HOURLY ▾", size = 12, color = Dim, spacing = 0.16f)
+            }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 b.strip.forEach { col ->
                     Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(3.dp)) {
@@ -300,11 +326,48 @@ fun BriefBody(b: Brief, revealed: Boolean = true) {
             }
             T(b.stripLegend, size = 12, color = Dim, spacing = 0.06f)
         }
+        if (hourlyOpen) HourlyList(b.hourly)
 
         Row {
             T("LOADOUT ▸ ", color = Dim)
             T(b.loadout)
         }
+    }
+}
+
+@Composable
+private fun HourlyList(rows: List<HourRow>) {
+    Column(Modifier.fillMaxWidth().border(1.dp, Line).background(Black).padding(horizontal = 10.dp, vertical = 4.dp)) {
+        Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            T("TIME", Modifier.width(54.dp), size = 11, color = Dim)
+            Box(Modifier.width(28.dp))
+            T("TEMP", Modifier.width(48.dp), size = 11, color = Dim)
+            T("FEELS", Modifier.width(52.dp), size = 11, color = Dim)
+            T("PRECIP", Modifier.weight(1f), size = 11, color = Dim)
+            T("GUST", size = 11, color = Dim)
+        }
+        rows.forEach { r ->
+            Row(
+                Modifier.fillMaxWidth().border(width = 0.5.dp, color = Off).padding(vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                T(r.time, Modifier.width(54.dp), color = Dim, spacing = 0f)
+                Box(Modifier.width(28.dp)) { DotSymbol(r.symbol, 18.dp) }
+                T("${r.temp}°", Modifier.width(48.dp), size = 16, font = Flap, spacing = 0f)
+                T("${r.feels}°", Modifier.width(52.dp), color = Dim, spacing = 0f)
+                T(
+                    r.precip, Modifier.weight(1f),
+                    color = when (r.type) {
+                        Precip.ICE -> Red
+                        Precip.NONE -> Dim
+                        else -> White
+                    },
+                    spacing = 0f,
+                )
+                T("${r.gust}", color = Dim, spacing = 0f)
+            }
+        }
+        T("PRECIP = AMOUNT IN THAT HOUR · GUST M/S", Modifier.padding(vertical = 6.dp), size = 11, color = Dim)
     }
 }
 
