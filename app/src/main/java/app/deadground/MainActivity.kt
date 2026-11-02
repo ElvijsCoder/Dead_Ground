@@ -14,6 +14,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.activity.ComponentActivity
@@ -100,13 +101,13 @@ fun App(startTab: String = "BRIEF", revealed: Boolean = true) {
         mutableStateOf(ctx.checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED)
     }
     var tab by remember { mutableStateOf(startTab) }
-    // Scanline wipe between tabs: ~220 ms, terrain stays put, only the content refreshes.
+    // Scanline wipe between tabs: ~380 ms, terrain stays put, only the content refreshes.
     var shownTab by remember { mutableStateOf(startTab) }
     val wipe = remember { Animatable(1f) }
     LaunchedEffect(tab) {
         if (tab != shownTab) {
             wipe.snapTo(0f)
-            wipe.animateTo(1f, tween(220, easing = LinearEasing))
+            wipe.animateTo(1f, tween(380, easing = LinearOutSlowInEasing)) // brisk start, eases into the bottom
             shownTab = tab
         }
     }
@@ -304,9 +305,9 @@ fun App(startTab: String = "BRIEF", revealed: Boolean = true) {
 private fun ScanLine(p: Float) {
     Canvas(Modifier.fillMaxSize()) {
         val y = size.height * p
-        val trail = 24.dp.toPx()
+        val trail = 40.dp.toPx()
         drawRect(
-            Brush.verticalGradient(listOf(Color.Transparent, Green.copy(alpha = 0.18f)), startY = y - trail, endY = y),
+            Brush.verticalGradient(listOf(Color.Transparent, Green.copy(alpha = 0.26f)), startY = y - trail, endY = y),
             topLeft = Offset(0f, y - trail), size = Size(size.width, trail),
         )
         drawLine(Green, Offset(0f, y), Offset(size.width, y), 2.dp.toPx())
